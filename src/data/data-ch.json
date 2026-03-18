@@ -1,0 +1,322 @@
+{
+  "book": "Exploring Society: India and Beyond",
+  "class": 6,
+  "subject": "Social Science",
+  "syllabus_year": "2025-26",
+  "published_by": "NCERT",
+  "total_chapters": 14,
+  "themes": [
+    {
+      "theme": "A",
+      "title": "India and the World: Land and the People",
+      "domain": "Geography",
+      "chapters": [
+        {
+          "chapter_number": 1,
+          "title": "Locating Places on the Earth",
+          "topics": [
+            "Need for a reference system on Earth",
+            "Latitudes — definition and types",
+            "Important latitudes: Equator, Tropics of Cancer and Capricorn, Arctic and Antarctic Circles",
+            "Longitudes — definition and meridians",
+            "Prime Meridian (Greenwich Meridian)",
+            "The global grid — intersection of latitudes and longitudes",
+            "How to find a location using coordinates",
+            "Time zones and the International Date Line",
+            "Difference between a Globe and a Map",
+            "Types of maps: physical, political, thematic",
+            "Components of a map: title, scale, compass, legend/key",
+            "Large-scale vs. small-scale maps",
+            "Map reading and navigation basics",
+            "India's latitudinal and longitudinal extent"
+          ]
+        },
+        {
+          "chapter_number": 2,
+          "title": "Oceans and Continents",
+          "topics": [
+            "Distribution of land and water on Earth",
+            "The seven continents: Asia, Africa, North America, South America, Antarctica, Europe, Australia",
+            "Characteristics and location of each continent",
+            "The five oceans: Pacific, Atlantic, Indian, Southern, Arctic",
+            "Characteristics, size, and importance of each ocean",
+            "Seas, gulfs, bays, and straits",
+            "Ocean currents and their significance",
+            "Importance of oceans for climate, trade, and life",
+            "India's position among continents and oceans",
+            "The Indian Ocean and India's maritime heritage"
+          ]
+        },
+        {
+          "chapter_number": 3,
+          "title": "Landforms and Life",
+          "topics": [
+            "What are landforms?",
+            "Major types of landforms: mountains, plateaus, plains, valleys, deserts",
+            "How mountains are formed — fold mountains, block mountains, volcanic mountains",
+            "Major mountain ranges of the world: Himalayas, Andes, Alps, Rockies",
+            "Plateaus — formation and examples (Deccan Plateau, Tibetan Plateau)",
+            "Plains — formation and their importance for agriculture and settlement",
+            "Valleys and river systems",
+            "Deserts — hot and cold deserts, causes and examples",
+            "Coastal landforms: beaches, deltas, cliffs",
+            "How landforms affect human life, settlement, and occupation",
+            "India's major landforms: Northern Mountains, Indo-Gangetic Plain, Peninsular Plateau, Coastal Plains, Islands",
+            "Natural vegetation and wildlife in different landform regions",
+            "Human adaptation to different landform environments"
+          ]
+        }
+      ]
+    },
+    {
+      "theme": "B",
+      "title": "Tapestry of the Past",
+      "domain": "History",
+      "chapters": [
+        {
+          "chapter_number": 4,
+          "title": "Timeline and Sources of History",
+          "topics": [
+            "What is History and why do we study it?",
+            "Concept of time in history: BC/BCE and AD/CE",
+            "How to read and construct a timeline",
+            "Primary and secondary sources of history",
+            "Archaeological sources: tools, pottery, coins, buildings, inscriptions",
+            "Literary sources: religious texts, chronicles, travelogues",
+            "Oral traditions and folk stories as historical sources",
+            "Epigraphy — study of inscriptions",
+            "Numismatics — study of coins",
+            "Archaeology as a discipline — excavations and findings",
+            "Museums and archives as repositories of history",
+            "Historians and how they piece together the past",
+            "Limitations of historical sources",
+            "India's prehistoric period: Stone Age, Bronze Age, Iron Age"
+          ]
+        },
+        {
+          "chapter_number": 5,
+          "title": "India, That Is Bharat",
+          "topics": [
+            "Names and identities of India: Bharat, Hindustan, India",
+            "Geographical extent and diversity of India",
+            "India's position in South Asia",
+            "India's physical diversity: mountains, rivers, plains, deserts, coasts",
+            "Cultural and linguistic diversity of India",
+            "Concept of a nation and national identity",
+            "India's ancient civilisational continuity",
+            "How India is perceived by the world through history",
+            "Constitutional identity: India as a Republic",
+            "Unity in diversity as a defining characteristic of India",
+            "India's neighbouring countries and borders",
+            "India's territorial extent: northernmost, southernmost, easternmost, westernmost points"
+          ]
+        },
+        {
+          "chapter_number": 6,
+          "title": "The Beginnings of Indian Civilisation",
+          "topics": [
+            "What is a civilisation?",
+            "Transition from hunter-gatherer to settled life",
+            "Neolithic settlements — early farming communities in India",
+            "Discovery and excavation of the Harappan (Indus Valley) Civilisation",
+            "Major sites: Harappa, Mohenjo-daro, Lothal, Dholavira, Kalibangan, Rakhigarhi",
+            "Town planning: grid system, drainage, granaries",
+            "Houses and public buildings of the Harappan civilisation",
+            "Water management: wells, baths, drainage channels",
+            "Trade and craft: pottery, beads, seals, metallurgy",
+            "Harappan script — undeciphered writing system",
+            "Seals and their significance",
+            "Agriculture and food in Harappan times",
+            "Social organisation and daily life",
+            "Decline of the Harappan Civilisation — possible reasons",
+            "Legacy of the Indus Valley Civilisation"
+          ]
+        }
+      ]
+    },
+    {
+      "theme": "C",
+      "title": "Our Cultural Heritage and Knowledge Traditions",
+      "domain": "History and Culture",
+      "chapters": [
+        {
+          "chapter_number": 7,
+          "title": "India's Cultural Roots",
+          "topics": [
+            "Vedic period — overview and significance",
+            "The four Vedas: Rigveda, Samaveda, Yajurveda, Atharvaveda",
+            "Upanishads and their philosophical ideas",
+            "Vedic society: varna system, family, and social life",
+            "Role of the gurukul system in Vedic education",
+            "Epics: the Ramayana and the Mahabharata — themes and significance",
+            "The Bhagavad Gita — key teachings",
+            "Rise of Jainism: Mahavira, the 24 Tirthankaras, core principles (Ahimsa, Satya, Aparigraha)",
+            "Rise of Buddhism: Siddhartha Gautama, the Four Noble Truths, Eightfold Path",
+            "Buddhist sangha and spread of Buddhism in India",
+            "Similarities and differences between Jainism and Buddhism",
+            "Indian philosophical traditions: Nyaya, Vaisheshika, Samkhya, Yoga, Mimamsa, Vedanta",
+            "India's contributions to mathematics, astronomy, and medicine in ancient times",
+            "Ayurveda — traditional Indian system of medicine",
+            "Sanskrit as the language of knowledge and culture"
+          ]
+        },
+        {
+          "chapter_number": 8,
+          "title": "Unity in Diversity, or 'Many in the One'",
+          "topics": [
+            "What is diversity?",
+            "Linguistic diversity: major language families of India",
+            "India's major religions and their coexistence",
+            "Regional diversity: food, clothing, music, dance, festivals",
+            "Classical dances of India: Bharatanatyam, Kathak, Odissi, Manipuri, etc.",
+            "Folk arts and traditions across states",
+            "Festivals across India: Diwali, Eid, Christmas, Onam, Baisakhi, Pongal, etc.",
+            "India's composite culture and syncretic traditions",
+            "Constitutional provisions that acknowledge and protect diversity",
+            "Fundamental rights and their role in ensuring equality",
+            "How shared history, geography, and values unite a diverse India",
+            "The idea of India as one nation despite many identities",
+            "National symbols: Flag, Anthem, Emblem, Bird, Animal, Flower, Fruit",
+            "Respect for diversity as a democratic value"
+          ]
+        }
+      ]
+    },
+    {
+      "theme": "D",
+      "title": "Governance and Democracy",
+      "domain": "Civics / Political Science",
+      "chapters": [
+        {
+          "chapter_number": 9,
+          "title": "Family and Community",
+          "topics": [
+            "What is a family?",
+            "Nuclear family vs. joint family",
+            "Roles and responsibilities within a family",
+            "Extended family and kinship networks",
+            "How families change over time",
+            "What is a community?",
+            "Types of communities: village, town, city",
+            "Community institutions: school, temple, mosque, church, market, hospital",
+            "Community cooperation and social bonds",
+            "Importance of respecting differences within a community",
+            "Gender roles in family and society — examining stereotypes",
+            "How family and community shape identity and values",
+            "Rights and duties of family members",
+            "Community problem-solving and civic participation"
+          ]
+        },
+        {
+          "chapter_number": 10,
+          "title": "Grassroots Democracy – Part 1: Governance",
+          "topics": [
+            "What is democracy?",
+            "Why do we need a government?",
+            "Three organs of government: Legislature, Executive, Judiciary",
+            "Three levels of government: Central, State, Local",
+            "The Constitution of India — supreme law of the land",
+            "Fundamental Rights of citizens",
+            "Fundamental Duties",
+            "Directive Principles of State Policy",
+            "Universal Adult Franchise — right to vote",
+            "Elections and the Election Commission of India",
+            "Role of a citizen in a democracy",
+            "Dr. A.P.J. Abdul Kalam — life and contribution as a democratic leader",
+            "Difference between democracy and dictatorship",
+            "The Parliament of India: Lok Sabha and Rajya Sabha"
+          ]
+        },
+        {
+          "chapter_number": 11,
+          "title": "Grassroots Democracy – Part 2: Local Government in Rural Areas",
+          "topics": [
+            "What is local self-government?",
+            "Panchayati Raj — history and importance",
+            "73rd Constitutional Amendment Act, 1992",
+            "Three-tier Panchayati Raj system: Gram Panchayat, Panchayat Samiti, Zila Parishad",
+            "Gram Sabha — members, meetings, and powers",
+            "Gram Panchayat — structure and functions",
+            "Sarpanch — election and role",
+            "Panchayat Samiti (Block level) — functions",
+            "Zila Parishad (District level) — functions",
+            "Revenue sources of Panchayats",
+            "Functions of Panchayats: roads, water, sanitation, schools",
+            "Nyaya Panchayat — dispute resolution at village level",
+            "Reservation in Panchayats for women and marginalised communities",
+            "Challenges faced by rural local bodies"
+          ]
+        },
+        {
+          "chapter_number": 12,
+          "title": "Grassroots Democracy – Part 3: Local Government in Urban Areas",
+          "topics": [
+            "Urban local bodies — types and need",
+            "74th Constitutional Amendment Act, 1992",
+            "Types of urban local bodies: Municipal Corporation, Municipality, Town Panchayat",
+            "Municipal Corporation — structure (Mayor, Commissioner, Councillors)",
+            "Ward system in urban governance",
+            "Functions of Municipal Corporations: water supply, sewage, roads, parks, hospitals, schools",
+            "Property tax and other revenue sources of urban bodies",
+            "Urban planning and development authorities",
+            "Metropolitan cities and special governance challenges",
+            "Smart Cities Mission — overview",
+            "Role of citizens in urban governance",
+            "Challenges of urban local bodies: rapid urbanisation, migration, pollution",
+            "Differences between rural and urban local self-government",
+            "Women's representation in urban local bodies"
+          ]
+        }
+      ]
+    },
+    {
+      "theme": "E",
+      "title": "Economic Life Around Us",
+      "domain": "Economics",
+      "chapters": [
+        {
+          "chapter_number": 13,
+          "title": "The Value of Work",
+          "topics": [
+            "What is work and why do people work?",
+            "Different types of work: paid and unpaid",
+            "Household work and its economic value",
+            "Why unpaid work (especially domestic labour) is often invisible",
+            "Dignity of labour — all work has equal value",
+            "Formal and informal sectors of work",
+            "Child labour — what it is and why it is harmful",
+            "Rights of workers",
+            "Minimum wage and labour laws in India",
+            "Gender and work — examining unequal division of labour",
+            "Rural vs. urban occupations",
+            "Seasonal and permanent employment",
+            "How technology is changing the nature of work",
+            "Work and social status — questioning hierarchies"
+          ]
+        },
+        {
+          "chapter_number": 14,
+          "title": "Economic Activities Around Us",
+          "topics": [
+            "What are economic activities?",
+            "Three sectors of the economy: Primary, Secondary, Tertiary",
+            "Primary sector: agriculture, fishing, forestry, mining",
+            "Types of farming: subsistence farming, commercial farming",
+            "Crops in India: Kharif, Rabi, Zaid",
+            "Green Revolution — significance and impact",
+            "Secondary sector: manufacturing and industry",
+            "Cottage industries and small-scale industries",
+            "Large-scale industries — examples and role in economy",
+            "Tertiary sector: services — banking, transport, trade, IT, healthcare",
+            "Market — types: local market, wholesale market, e-commerce",
+            "Barter system and evolution to money-based economy",
+            "Importance of trade: local, national, and international",
+            "Interdependence among economic sectors",
+            "Impact of economic activities on the environment",
+            "Sustainable economic development — balancing growth and environment"
+          ]
+        }
+      ]
+    }
+  ]
+}
