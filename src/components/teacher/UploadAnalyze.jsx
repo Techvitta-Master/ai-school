@@ -1,63 +1,87 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, createElement } from 'react';
 import { useSchool } from '../../context/SchoolContext';
 import { Upload, FileText, Sparkles, CheckCircle, AlertCircle, BarChart } from 'lucide-react';
+import { supabase } from '../../lib/supabaseClient';
 
 export default function UploadAnalyze() {
-  const { data, currentUser } = useSchool();
+  const { data, currentUser, uploadTestAnalysis } = useSchool();
   const [uploading, setUploading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [uploadError, setUploadError] = useState('');
+  const [selectedTestId, setSelectedTestId] = useState('');
   const fileInputRef = useRef(null);
 
-  const assignedStudents = data.students.filter(s => s.assignedTeacher === currentUser.id);
+  // Pick a default test to attach the analysis to (so persistence has a target).
+  useEffect(() => {
+    if (!selectedTestId && data?.tests?.length) {
+      setSelectedTestId(data.tests[0].id);
+    }
+  }, [data?.tests, selectedTestId]);
 
-  const simulateAIAnalysis = (file) => {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const mockAnalysis = {
-          fileName: file.name,
-          uploadTime: new Date().toISOString(),
-          summary: {
-            totalQuestions: Math.floor(Math.random() * 20) + 10,
-            avgScore: Math.floor(Math.random() * 30) + 60,
-            highestScore: Math.floor(Math.random() * 20) + 80,
-            lowestScore: Math.floor(Math.random() * 30) + 30,
-            passRate: Math.floor(Math.random() * 30) + 60
-          },
-          questionAnalysis: [
-            { q: 'Question 1', topic: 'Latitudes', difficulty: 'Easy', avgScore: 85, studentsStruggling: 2 },
-            { q: 'Question 2', topic: 'Longitudes', difficulty: 'Medium', avgScore: 72, studentsStruggling: 5 },
-            { q: 'Question 3', topic: 'Time Zones', difficulty: 'Hard', avgScore: 58, studentsStruggling: 12 },
-            { q: 'Question 4', topic: 'Global Grid', difficulty: 'Medium', avgScore: 68, studentsStruggling: 8 },
-            { q: 'Question 5', topic: 'Maps', difficulty: 'Easy', avgScore: 78, studentsStruggling: 4 },
-          ],
-          recommendations: [
-            'Focus more on Time Zones concepts - 60% students need improvement',
-            'Consider remedial classes for Longitudes',
-            'Maps and Latitudes concepts are well understood',
-            'Recommended practice questions for underperforming topics'
-          ],
-          studentWisePerformance: assignedStudents.slice(0, 5).map(s => ({
-            name: s.name,
-            score: Math.floor(Math.random() * 40) + 60,
-            weakTopics: ['Time Zones', 'Global Grid'],
-            strongTopics: ['Maps', 'Latitudes']
-          }))
-        };
-        resolve(mockAnalysis);
-      }, 2000);
-    });
+  const validateFile = (file) => {
+    const maxBytes = parseInt(import.meta.env.VITE_UPLOAD_MAX_BYTES || '10485760', 10); // 10MB default
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
+
+    if (file.size > maxBytes) return `File too large. Max ${Math.round(maxBytes / 1024 / 1024)}MB.`;
+    if (file.type && !allowedTypes.includes(file.type)) return 'Unsupported file type. Upload PDF/JPG/PNG.';
+    return '';
   };
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const validationError = validateFile(file);
+    if (validationError) {
+      setUploadError(validationError);
+      return;
+    }
+
+    if (!selectedTestId) {
+      setUploadError('Please select a test to attach the analysis to.');
+      return;
+    }
+
     setUploading(true);
+    setUploadError('');
     try {
-      const analysis = await simulateAIAnalysis(file);
-      setAnalysisResult(analysis);
+      if (!supabase) throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+
+      const bucket = import.meta.env.VITE_SUPABASE_STORAGE_BUCKET || 'test-analyses';
+      const functionName = import.meta.env.VITE_SUPABASE_EDGE_FUNCTION_ANALYZE || 'analyze_test';
+
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storagePath = `analysis/${currentUser.id}/${Date.now()}-${safeName}`;
+
+      const { error: uploadErr } = await supabase.storage.from(bucket).upload(storagePath, file, {
+        contentType: file.type || undefined,
+        upsert: false,
+      });
+
+      if (uploadErr) throw uploadErr;
+
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke(functionName, {
+        body: { bucket, storagePath },
+      });
+
+      if (fnErr) throw fnErr;
+
+      const analysis = fnData?.analysis ?? fnData;
+
+      setAnalysisResult({
+        fileName: analysis?.fileName || file.name,
+        uploadTime: analysis?.uploadTime || new Date().toISOString(),
+        summary: analysis?.summary || {},
+        questionAnalysis: analysis?.questionAnalysis || [],
+        recommendations: analysis?.recommendations || [],
+        studentWisePerformance: analysis?.studentWisePerformance || [],
+      });
+
+      // Persist analysis onto the selected test (via our Supabase JSON state row).
+      uploadTestAnalysis(selectedTestId, analysis);
     } catch (error) {
       console.error('Analysis failed:', error);
+      setUploadError(error?.message || 'Analysis failed. Please try again.');
     }
     setUploading(false);
   };
@@ -71,6 +95,11 @@ export default function UploadAnalyze() {
     }
   };
 
+  const summary = analysisResult?.summary || {};
+  const questionAnalysis = analysisResult?.questionAnalysis || [];
+  const recommendations = analysisResult?.recommendations || [];
+  const studentWisePerformance = analysisResult?.studentWisePerformance || [];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -78,6 +107,31 @@ export default function UploadAnalyze() {
           <h2 className="text-xl font-semibold text-gray-900">Upload & Analyze</h2>
           <p className="text-sm text-gray-500">Upload test papers and get AI-powered analysis</p>
         </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <p className="text-sm font-medium text-gray-700">Attach analysis to test</p>
+            <p className="text-xs text-gray-500">Choose the test this paper corresponds to.</p>
+          </div>
+          <select
+            value={selectedTestId}
+            onChange={(e) => setSelectedTestId(e.target.value)}
+            className="h-10 px-3 rounded-lg border border-gray-200 bg-white text-sm"
+          >
+            {data?.tests?.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.title}
+              </option>
+            ))}
+          </select>
+        </div>
+        {uploadError && (
+          <p className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-xl">
+            {uploadError}
+          </p>
+        )}
       </div>
 
       <div
@@ -125,14 +179,14 @@ export default function UploadAnalyze() {
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             {[
-              { label: 'Total Questions', value: analysisResult.summary.totalQuestions, icon: FileText },
-              { label: 'Average Score', value: `${analysisResult.summary.avgScore}%`, icon: BarChart },
-              { label: 'Pass Rate', value: `${analysisResult.summary.passRate}%`, icon: CheckCircle },
-              { label: 'Needs Attention', value: analysisResult.questionAnalysis.filter(q => q.studentsStruggling > 5).length, icon: AlertCircle },
+              { label: 'Total Questions', value: summary.totalQuestions, icon: FileText },
+              { label: 'Average Score', value: `${summary.avgScore}%`, icon: BarChart },
+              { label: 'Pass Rate', value: `${summary.passRate}%`, icon: CheckCircle },
+              { label: 'Needs Attention', value: questionAnalysis.filter(q => q.studentsStruggling > 5).length, icon: AlertCircle },
             ].map(({ label, value, icon: Icon }) => (
               <div key={label} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
                 <div className="flex items-center gap-2 mb-2">
-                  <Icon className="w-5 h-5 text-indigo-600" />
+                  {createElement(Icon, { className: 'w-5 h-5 text-indigo-600' })}
                   <span className="text-sm text-gray-500">{label}</span>
                 </div>
                 <p className="text-2xl font-bold text-gray-900">{value}</p>
@@ -144,7 +198,7 @@ export default function UploadAnalyze() {
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Question Analysis</h3>
               <div className="space-y-3">
-                {analysisResult.questionAnalysis.map((q, i) => (
+                {questionAnalysis.map((q, i) => (
                   <div key={i} className="p-3 bg-gray-50 rounded-xl">
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-medium text-gray-900">{q.q}: {q.topic}</span>
@@ -170,7 +224,7 @@ export default function UploadAnalyze() {
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">AI Recommendations</h3>
               <div className="space-y-3">
-                {analysisResult.recommendations.map((rec, i) => (
+                {recommendations.map((rec, i) => (
                   <div key={i} className="flex items-start gap-3 p-3 bg-indigo-50 rounded-xl">
                     <Sparkles className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" />
                     <p className="text-sm text-gray-700">{rec}</p>
@@ -183,7 +237,7 @@ export default function UploadAnalyze() {
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Student Performance Breakdown</h3>
             <div className="space-y-4">
-              {analysisResult.studentWisePerformance.map((student, i) => (
+              {studentWisePerformance.map((student, i) => (
                 <div key={i} className="p-4 bg-gray-50 rounded-xl">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">

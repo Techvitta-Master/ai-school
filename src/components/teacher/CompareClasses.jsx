@@ -1,3 +1,4 @@
+import { createElement } from 'react';
 import { useSchool } from '../../context/SchoolContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { TrendingUp, Users, BookOpen, Award } from 'lucide-react';
@@ -82,6 +83,13 @@ export default function CompareClasses() {
     );
   };
 
+  const colorToClasses = {
+    emerald: { bg: 'bg-emerald-100', text: 'text-emerald-600' },
+    indigo: { bg: 'bg-indigo-100', text: 'text-indigo-600' },
+    amber: { bg: 'bg-amber-100', text: 'text-amber-600' },
+    purple: { bg: 'bg-purple-100', text: 'text-purple-600' },
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -97,19 +105,22 @@ export default function CompareClasses() {
           { label: 'Total Classes', value: comparisonData.length, icon: Users, color: 'indigo' },
           { label: 'My Avg Score', value: `${Math.round(myPerf?.avgPerformance || 0)}%`, icon: TrendingUp, color: 'amber' },
           { label: 'Rank', value: '#1', icon: Award, color: 'purple' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-            <div className="flex items-center gap-4">
-              <div className={`w-12 h-12 bg-${color}-100 rounded-xl flex items-center justify-center`}>
-                <Icon className={`w-6 h-6 text-${color}-600`} />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">{label}</p>
-                <p className="text-2xl font-bold text-gray-900">{value}</p>
+        ].map(({ label, value, icon: Icon, color }) => {
+          const classes = colorToClasses[color] || colorToClasses.indigo;
+          return (
+            <div key={label} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <div className="flex items-center gap-4">
+                <div className={`w-12 h-12 ${classes.bg} rounded-xl flex items-center justify-center`}>
+                  {createElement(Icon, { className: `w-6 h-6 ${classes.text}` })}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">{label}</p>
+                  <p className="text-2xl font-bold text-gray-900">{value}</p>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

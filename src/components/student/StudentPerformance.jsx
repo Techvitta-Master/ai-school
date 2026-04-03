@@ -1,3 +1,4 @@
+import { createElement } from 'react';
 import { useSchool } from '../../context/SchoolContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import { BookOpen, Target, Award, TrendingUp } from 'lucide-react';
@@ -34,6 +35,12 @@ export default function StudentPerformance() {
     }))
     .slice(0, 6);
 
+  const colorToClasses = {
+    purple: { bg: 'bg-purple-100', text: 'text-purple-600' },
+    emerald: { bg: 'bg-emerald-100', text: 'text-emerald-600' },
+    indigo: { bg: 'bg-indigo-100', text: 'text-indigo-600' },
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -41,19 +48,22 @@ export default function StudentPerformance() {
           { label: 'Overall Performance', value: `${Math.round(perf?.overallScore || 0)}%`, icon: TrendingUp, color: 'purple' },
           { label: 'Strongest Subject', value: perf?.strongTopics?.[0]?.[0]?.split(' ')[0] || 'N/A', icon: Award, color: 'emerald' },
           { label: 'Tests Analyzed', value: Object.keys(perf?.testWise || {}).length, icon: BookOpen, color: 'indigo' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-            <div className="flex items-center gap-4">
-              <div className={`w-12 h-12 bg-${color}-100 rounded-xl flex items-center justify-center`}>
-                <Icon className={`w-6 h-6 text-${color}-600`} />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">{label}</p>
-                <p className="text-xl font-bold text-gray-900">{value}</p>
+        ].map(({ label, value, icon: Icon, color }) => {
+          const classes = colorToClasses[color] || colorToClasses.indigo;
+          return (
+            <div key={label} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <div className="flex items-center gap-4">
+                <div className={`w-12 h-12 ${classes.bg} rounded-xl flex items-center justify-center`}>
+                  {createElement(Icon, { className: `w-6 h-6 ${classes.text}` })}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">{label}</p>
+                  <p className="text-xl font-bold text-gray-900">{value}</p>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -1,5 +1,8 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+/* eslint react-refresh/only-export-components: off */
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { initialData } from '../data/mockData';
+import { supabase } from '../lib/supabaseClient';
+import { fetchSchoolData, persistSchoolData } from '../lib/schoolStateStore';
 
 const SchoolContext = createContext();
 
@@ -11,67 +14,190 @@ export const useSchool = () => {
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-const loadFromStorage = (key, fallback) => {
-  try {
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-const saveToStorage = (key, data) => {
-  localStorage.setItem(key, JSON.stringify(data));
-};
-
 export const SchoolProvider = ({ children }) => {
-  const [data, setData] = useState(() => loadFromStorage('schoolData', initialData));
-  const [currentUser, setCurrentUser] = useState(() => {
-    const stored = localStorage.getItem('currentUser');
-    return stored ? JSON.parse(stored) : null;
-  });
+  const [data, setData] = useState(initialData);
+  const dataRef = useRef(data);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
+  const [dataLoading, setDataLoading] = useState(true);
 
   useEffect(() => {
-    saveToStorage('schoolData', data);
+    dataRef.current = data;
   }, [data]);
 
-  useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem('currentUser', JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem('currentUser');
-    }
-  }, [currentUser]);
+  const hasHydratedRef = useRef(false);
 
-  const login = (role, email, password) => {
+  const deriveCurrentUserFromSupabase = (user) => {
+    if (!user) return null;
+
+    const email = user.email;
+    const name = user.user_metadata?.full_name || user.user_metadata?.name || email?.split('@')[0];
+    const roleFromMetadata = user.user_metadata?.role;
+
+    const localData = dataRef.current;
+
+    // Preferred: store role in Supabase user_metadata.role
+    const role = roleFromMetadata
+      ? String(roleFromMetadata)
+      : localData.teachers.some(t => t.email === email)
+        ? 'teacher'
+        : localData.students.some(s => s.email === email)
+          ? 'student'
+          : 'admin';
+
     if (role === 'admin') {
-      if (email === 'admin@school.com' && password === 'admin123') {
-        setCurrentUser({ role: 'admin', id: 'admin', name: 'School Admin' });
-        return true;
-      }
-    } else if (role === 'teacher') {
-      const teacher = data.teachers.find(t => t.email === email && t.password === password);
-      if (teacher) {
-        setCurrentUser({ role: 'teacher', id: teacher.id, name: teacher.name });
-        return true;
-      }
-    } else if (role === 'student') {
-      const student = data.students.find(s => s.email === email && s.password === password);
-      if (student) {
-        setCurrentUser({ role: 'student', id: student.id, name: student.name });
-        return true;
-      }
+      return { role: 'admin', id: 'admin', name: name || 'School Admin' };
     }
-    return false;
+
+    if (role === 'teacher') {
+      const teacher = localData.teachers.find(t => t.email === email);
+      if (!teacher) return { role: 'teacher', id: email, name: name || 'Teacher' };
+      return { role: 'teacher', id: teacher.id, name: teacher.name };
+    }
+
+    if (role === 'student') {
+      const student = localData.students.find(s => s.email === email);
+      if (!student) return { role: 'student', id: email, name: name || 'Student' };
+      return { role: 'student', id: student.id, name: student.name };
+    }
+
+    return null;
   };
 
-  const logout = () => {
-    setCurrentUser(null);
+  useEffect(() => {
+    let isMounted = true;
+
+    const init = async () => {
+      setAuthLoading(true);
+      setAuthError(null);
+
+      if (!supabase) {
+        setAuthError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+        setCurrentUser(null);
+        setAuthLoading(false);
+        return;
+      }
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (!isMounted) return;
+
+      if (sessionError) {
+        setAuthError(sessionError.message);
+        setCurrentUser(null);
+        setAuthLoading(false);
+        return;
+      }
+
+      const user = sessionData?.session?.user ?? null;
+      setCurrentUser(deriveCurrentUserFromSupabase(user));
+      setAuthLoading(false);
+    };
+
+    init();
+
+    if (!supabase) return () => {};
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user ?? null;
+      setCurrentUser(deriveCurrentUserFromSupabase(user));
+    });
+
+    return () => {
+      isMounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const load = async () => {
+      if (!supabase) {
+        setDataLoading(false);
+        hasHydratedRef.current = true;
+        return;
+      }
+
+      // Avoid hitting the DB while the user is logged out.
+      if (!currentUser) {
+        setDataLoading(false);
+        hasHydratedRef.current = true;
+        return;
+      }
+
+      try {
+        const remote = await fetchSchoolData({ fallbackData: initialData });
+        if (!isMounted) return;
+        setData(remote);
+      } catch (err) {
+        // If tables aren't set up yet, keep the app usable with the embedded demo data.
+        if (isMounted) {
+          setAuthError(err?.message || 'Failed to load school data from Supabase.');
+          setData(initialData);
+        }
+      } finally {
+        if (isMounted) {
+          setDataLoading(false);
+          hasHydratedRef.current = true;
+        }
+      }
+    };
+
+    // Only attempt DB load after auth state is known.
+    if (!authLoading) load();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authLoading, currentUser]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    if (!hasHydratedRef.current) return;
+
+    // Persist on every state change (simple approach; can be optimized later).
+    persistSchoolData({ schoolData: data }).catch((err) => {
+      setAuthError(err?.message || 'Failed to persist school data to Supabase.');
+    });
+  }, [data]);
+
+  const login = async (email, password) => {
+    setAuthError(null);
+
+    if (!supabase) {
+      setAuthError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+      return { success: false, role: null };
+    }
+
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      setAuthError(error.message);
+      return { success: false, role: null };
+    }
+
+    const nextUser = deriveCurrentUserFromSupabase(signInData.user);
+    setCurrentUser(nextUser);
+    return { success: true, role: nextUser?.role ?? null };
+  };
+
+  const logout = async () => {
+    setAuthError(null);
+    try {
+      await supabase?.auth.signOut();
+    } finally {
+      setCurrentUser(null);
+    }
   };
 
   // Teacher Management
   const addTeacher = (teacher) => {
-    const newTeacher = { ...teacher, id: generateId(), password: 'teacher123', students: [], classes: [] };
+    // Auth users are managed by Supabase; store only teacher profile data here.
+    const newTeacher = { ...teacher, id: generateId(), students: [], classes: [] };
     setData(prev => ({ ...prev, teachers: [...prev.teachers, newTeacher] }));
     return newTeacher;
   };
@@ -82,7 +208,8 @@ export const SchoolProvider = ({ children }) => {
 
   // Student Management
   const addStudent = (student) => {
-    const newStudent = { ...student, id: generateId(), password: 'student123', scores: [] };
+    // Auth users are managed by Supabase; store only student profile data here.
+    const newStudent = { ...student, id: generateId(), scores: [] };
     setData(prev => ({ ...prev, students: [...prev.students, newStudent] }));
     return newStudent;
   };
@@ -326,6 +453,9 @@ export const SchoolProvider = ({ children }) => {
       currentUser,
       login,
       logout,
+      authLoading,
+      authError,
+      dataLoading,
       addTeacher,
       removeTeacher,
       addStudent,

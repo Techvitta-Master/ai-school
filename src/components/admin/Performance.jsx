@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, createElement } from 'react';
 import { useSchool } from '../../context/SchoolContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { TrendingUp, Users, BookOpen, Award, Edit } from 'lucide-react';
@@ -16,41 +16,57 @@ export default function Performance() {
   };
 
   const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
-
-  const overallStats = {
-    totalStudents: data.students.length,
-    avgScore: Math.round(
-      data.students.reduce((acc, s) => {
-        const perf = getStudentPerformance(s.id);
-        return acc + (perf?.overallScore || 0);
-      }, 0) / data.students.length
-    ),
-    totalTests: data.tests.length,
-    subjectCount: data.syllabus.themes.length
+  const colorToClasses = {
+    indigo: { bg: 'bg-indigo-100', text: 'text-indigo-600' },
+    emerald: { bg: 'bg-emerald-100', text: 'text-emerald-600' },
+    amber: { bg: 'bg-amber-100', text: 'text-amber-600' },
+    purple: { bg: 'bg-purple-100', text: 'text-purple-600' },
   };
 
-  const subjectPerformance = data.syllabus.themes.map(theme => {
-    const avgScore = data.students.reduce((acc, s) => {
-      const perf = getStudentPerformance(s.id);
-      return acc + (perf?.subjectWise?.[theme.domain] || 0);
-    }, 0) / (data.students.length || 1);
-    return { name: theme.domain.split(' ')[0], score: Math.round(avgScore) };
-  });
+  const overallStats = useMemo(() => {
+    return {
+      totalStudents: data.students.length,
+      avgScore: Math.round(
+        data.students.reduce((acc, s) => {
+          const perf = getStudentPerformance(s.id);
+          return acc + (perf?.overallScore || 0);
+        }, 0) / data.students.length
+      ),
+      totalTests: data.tests.length,
+      subjectCount: data.syllabus.themes.length
+    };
+  }, [data, getStudentPerformance]);
 
-  const teacherPerformance = data.teachers.map(t => {
-    const perf = getTeacherPerformance(t.id);
-    return { name: t.name.split(' ')[0], students: perf?.totalStudents || 0, avgScore: Math.round(perf?.avgPerformance || 0) };
-  });
+  const subjectPerformance = useMemo(() => {
+    return data.syllabus.themes.map(theme => {
+      const avgScore = data.students.reduce((acc, s) => {
+        const perf = getStudentPerformance(s.id);
+        return acc + (perf?.subjectWise?.[theme.domain] || 0);
+      }, 0) / (data.students.length || 1);
+      return { name: theme.domain.split(' ')[0], score: Math.round(avgScore) };
+    });
+  }, [data, getStudentPerformance]);
 
-  const weakStudents = data.students
-    .map(s => ({ ...s, perf: getStudentPerformance(s.id) }))
-    .filter(s => s.perf?.overallScore < 50)
-    .sort((a, b) => a.perf.overallScore - b.perf.overallScore);
+  const teacherPerformance = useMemo(() => {
+    return data.teachers.map(t => {
+      const perf = getTeacherPerformance(t.id);
+      return { name: t.name.split(' ')[0], students: perf?.totalStudents || 0, avgScore: Math.round(perf?.avgPerformance || 0) };
+    });
+  }, [data, getTeacherPerformance]);
 
-  const strongStudents = data.students
-    .map(s => ({ ...s, perf: getStudentPerformance(s.id) }))
-    .filter(s => s.perf?.overallScore >= 80)
-    .sort((a, b) => b.perf.overallScore - a.perf.overallScore);
+  const weakStudents = useMemo(() => {
+    return data.students
+      .map(s => ({ ...s, perf: getStudentPerformance(s.id) }))
+      .filter(s => s.perf?.overallScore < 50)
+      .sort((a, b) => a.perf.overallScore - b.perf.overallScore);
+  }, [data, getStudentPerformance]);
+
+  const strongStudents = useMemo(() => {
+    return data.students
+      .map(s => ({ ...s, perf: getStudentPerformance(s.id) }))
+      .filter(s => s.perf?.overallScore >= 80)
+      .sort((a, b) => b.perf.overallScore - a.perf.overallScore);
+  }, [data, getStudentPerformance]);
 
   return (
     <div className="space-y-6">
@@ -60,19 +76,22 @@ export default function Performance() {
           { label: 'Average Score', value: `${overallStats.avgScore}%`, icon: TrendingUp, color: 'emerald' },
           { label: 'Total Tests', value: overallStats.totalTests, icon: BookOpen, color: 'amber' },
           { label: 'Top Performers', value: strongStudents.length, icon: Award, color: 'purple' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-            <div className="flex items-center gap-4">
-              <div className={`w-12 h-12 bg-${color}-100 rounded-xl flex items-center justify-center`}>
-                <Icon className={`w-6 h-6 text-${color}-600`} />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">{label}</p>
-                <p className="text-2xl font-bold text-gray-900">{value}</p>
+        ].map(({ label, value, icon: Icon, color }) => {
+          const classes = colorToClasses[color] || colorToClasses.indigo;
+          return (
+            <div key={label} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <div className="flex items-center gap-4">
+                <div className={`w-12 h-12 ${classes.bg} rounded-xl flex items-center justify-center`}>
+                  {createElement(Icon, { className: `w-6 h-6 ${classes.text}` })}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">{label}</p>
+                  <p className="text-2xl font-bold text-gray-900">{value}</p>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, createElement } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSchool } from '../context/SchoolContext';
 import { GraduationCap, LayoutDashboard, Users, GraduationCap as StudentIcon, BookOpen, FileText, BarChart3, LogOut, ChevronLeft, Bell, Search, Plus } from 'lucide-react';
@@ -88,7 +88,9 @@ export default function Layout({ children, role }) {
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                   } ${collapsed ? 'justify-center' : ''}`}
                 >
-                  <Icon className={`w-5 h-5 ${active ? 'text-indigo-600' : 'text-slate-500'}`} />
+                  {createElement(Icon, {
+                    className: `w-5 h-5 ${active ? 'text-indigo-600' : 'text-slate-500'}`,
+                  })}
                   {!collapsed && <span>{label}</span>}
                   {active && !collapsed && (
                     <div className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-600" />

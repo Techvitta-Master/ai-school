@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSchool } from '../../context/SchoolContext';
 import { Users, GraduationCap, FileText, BookOpen, TrendingUp, Award, ArrowRight, Clock, Search, Filter, Download, ChevronDown, ChevronUp, Star, TrendingDown, BarChart3, X, Eye, EyeOff } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -11,7 +11,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, LineChart, Line } from 'recharts';
 
 export default function AdminOverview() {
-  const { data, getStudentPerformance, getTeacherPerformance } = useSchool();
+  // Keep both getters available for consistency with other dashboards.
+  // `getTeacherPerformance` isn't used in this component, so we alias to avoid lint noise.
+  const { data, getStudentPerformance, getTeacherPerformance: _getTeacherPerformance } = useSchool();
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('name');
@@ -25,59 +27,74 @@ export default function AdminOverview() {
     { label: 'Classes', value: data.sections.length, icon: BookOpen, color: 'amber', trend: 'Classes 6-8' },
   ];
 
-  const teacherScores = data.teachers.slice(0, 8).map(t => {
-    const perf = getTeacherPerformance(t.id);
-    return { name: t.name.split(' ')[0], score: Math.round(perf?.avgPerformance || 0) };
-  });
-
-  const allStudentsWithPerf = data.students.map(s => {
-    const perf = getStudentPerformance(s.id);
-    return {
-      ...s,
-      avgScore: perf?.overallScore || 0,
-      subjectWise: perf?.subjectWise || {},
-      weakTopics: perf?.weakTopics || [],
-      strongTopics: perf?.strongTopics || [],
-      testCount: s.scores.length
-    };
-  });
-
-  const filteredStudents = allStudentsWithPerf
-    .filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                 `${s.class}-${s.section}`.toLowerCase().includes(searchQuery.toLowerCase()))
-    .sort((a, b) => {
-      let aVal, bVal;
-      if (sortBy === 'name') { aVal = a.name; bVal = b.name; }
-      else if (sortBy === 'score') { aVal = a.avgScore; bVal = b.avgScore; }
-      else if (sortBy === 'class') { aVal = `${a.class}-${a.section}`; bVal = `${b.class}-${b.section}`; }
-      return sortOrder === 'asc' ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1);
+  const allStudentsWithPerf = useMemo(() => {
+    return data.students.map(s => {
+      const perf = getStudentPerformance(s.id);
+      return {
+        ...s,
+        avgScore: perf?.overallScore || 0,
+        subjectWise: perf?.subjectWise || {},
+        weakTopics: perf?.weakTopics || [],
+        strongTopics: perf?.strongTopics || [],
+        testCount: s.scores.length
+      };
     });
+  }, [data, getStudentPerformance]);
 
-  const topStudents = [...allStudentsWithPerf].sort((a, b) => b.avgScore - a.avgScore).slice(0, 5);
-  const weakStudents = [...allStudentsWithPerf].filter(s => s.avgScore < 50).sort((a, b) => a.avgScore - b.avgScore).slice(0, 5);
+  const filteredStudents = useMemo(() => {
+    return allStudentsWithPerf
+      .filter(s =>
+        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        `${s.class}-${s.section}`.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      .sort((a, b) => {
+        let aVal, bVal;
+        if (sortBy === 'name') { aVal = a.name; bVal = b.name; }
+        else if (sortBy === 'score') { aVal = a.avgScore; bVal = b.avgScore; }
+        else if (sortBy === 'class') { aVal = `${a.class}-${a.section}`; bVal = `${b.class}-${b.section}`; }
+        return sortOrder === 'asc' ? (aVal > bVal ? 1 : -1) : (aVal < bVal ? 1 : -1);
+      });
+  }, [allStudentsWithPerf, searchQuery, sortBy, sortOrder]);
 
-  const avgPerformance = Math.round(
-    allStudentsWithPerf.reduce((a, b) => a + b.avgScore, 0) / (allStudentsWithPerf.length || 1)
-  );
+  const topStudents = useMemo(() => {
+    return [...allStudentsWithPerf].sort((a, b) => b.avgScore - a.avgScore).slice(0, 5);
+  }, [allStudentsWithPerf]);
 
-  const performanceData = [
-    { month: 'Jan', score: 72 },
-    { month: 'Feb', score: 74 },
-    { month: 'Mar', score: 71 },
-    { month: 'Apr', score: 76 },
-    { month: 'May', score: 78 },
-    { month: 'Jun', score: avgPerformance },
-  ];
+  const weakStudents = useMemo(() => {
+    return [...allStudentsWithPerf]
+      .filter(s => s.avgScore < 50)
+      .sort((a, b) => a.avgScore - b.avgScore)
+      .slice(0, 5);
+  }, [allStudentsWithPerf]);
 
-  const classPerformance = Object.entries(
-    allStudentsWithPerf.reduce((acc, s) => {
-      const key = `${s.class}-${s.section}`;
-      if (!acc[key]) acc[key] = { total: 0, count: 0 };
-      acc[key].total += s.avgScore;
-      acc[key].count += 1;
-      return acc;
-    }, {})
-  ).map(([key, val]) => ({ name: key, score: Math.round(val.total / val.count) }));
+  const avgPerformance = useMemo(() => {
+    return Math.round(
+      allStudentsWithPerf.reduce((a, b) => a + b.avgScore, 0) / (allStudentsWithPerf.length || 1)
+    );
+  }, [allStudentsWithPerf]);
+
+  const performanceData = useMemo(() => {
+    return [
+      { month: 'Jan', score: 72 },
+      { month: 'Feb', score: 74 },
+      { month: 'Mar', score: 71 },
+      { month: 'Apr', score: 76 },
+      { month: 'May', score: 78 },
+      { month: 'Jun', score: avgPerformance },
+    ];
+  }, [avgPerformance]);
+
+  const classPerformance = useMemo(() => {
+    return Object.entries(
+      allStudentsWithPerf.reduce((acc, s) => {
+        const key = `${s.class}-${s.section}`;
+        if (!acc[key]) acc[key] = { total: 0, count: 0 };
+        acc[key].total += s.avgScore;
+        acc[key].count += 1;
+        return acc;
+      }, {})
+    ).map(([key, val]) => ({ name: key, score: Math.round(val.total / val.count) }));
+  }, [allStudentsWithPerf]);
 
   const getScoreColor = (score) => {
     if (score >= 80) return 'text-emerald-600';
@@ -112,7 +129,7 @@ export default function AdminOverview() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, i) => (
+        {stats.map((stat) => (
           <Card key={stat.label} className="animate-fade-in hover:shadow-md transition-shadow">
             <CardContent className="p-5">
               <div className="flex items-center justify-between mb-4">
@@ -442,7 +459,7 @@ export default function AdminOverview() {
                 <div className="bg-slate-50 rounded-xl p-4 text-center">
                   <p className="text-sm text-slate-500">Best Score</p>
                   <p className="text-2xl font-bold text-emerald-600">
-                    {Math.max(...selectedStudent?.scores.map(s => s.score))}%
+                    {Math.max(...(selectedStudent?.scores?.map(s => s.score) || [0]))}%
                   </p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-4 text-center">

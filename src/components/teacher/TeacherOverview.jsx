@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSchool } from '../../context/SchoolContext';
 import { Users, TrendingUp, AlertTriangle, BookOpen, Award, Eye, Star, TrendingDown, Search } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -28,48 +28,61 @@ export default function TeacherOverview() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   
-  const assignedStudents = data.students.filter(s => s.assignedTeacher === currentUser.id);
-  const perf = getTeacherPerformance(currentUser.id);
+  const assignedStudents = useMemo(() => {
+    return data.students.filter(s => s.assignedTeacher === currentUser.id);
+  }, [data, currentUser.id]);
 
-  const filteredStudents = assignedStudents.filter(s => 
-    s.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const perf = useMemo(() => getTeacherPerformance(currentUser.id), [getTeacherPerformance, currentUser.id]);
 
-  const classData = {};
-  for (const s of assignedStudents) {
-    const key = `${s.class}-${s.section}`;
-    if (!classData[key]) classData[key] = { scores: [] };
-    for (const sc of s.scores) {
-      classData[key].scores.push(sc.score);
+  const filteredStudents = useMemo(() => {
+    return assignedStudents.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [assignedStudents, searchQuery]);
+
+  const classData = useMemo(() => {
+    const next = {};
+    for (const s of assignedStudents) {
+      const key = `${s.class}-${s.section}`;
+      if (!next[key]) next[key] = { scores: [] };
+      for (const sc of s.scores) {
+        next[key].scores.push(sc.score);
+      }
     }
-  }
 
-  for (const key of Object.keys(classData)) {
-    const scores = classData[key].scores;
-    classData[key].avg = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
-  }
-
-  const chartData = Object.entries(classData).map(([key, val]) => ({
-    name: key,
-    score: val.avg,
-    students: assignedStudents.filter(s => `${s.class}-${s.section}` === key).length
-  }));
-
-  const weakTopicsMap = {};
-  for (const s of assignedStudents) {
-    const studentPerf = getStudentPerformance(s.id);
-    for (const [topic, score] of studentPerf?.weakTopics || []) {
-      if (!weakTopicsMap[topic]) weakTopicsMap[topic] = { count: 0, totalScore: 0 };
-      weakTopicsMap[topic].count++;
-      weakTopicsMap[topic].totalScore += score;
+    for (const key of Object.keys(next)) {
+      const scores = next[key].scores;
+      next[key].avg = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
     }
-  }
 
-  const topWeakTopics = Object.entries(weakTopicsMap)
-    .sort((a, b) => b[1].count - a[1].count)
-    .slice(0, 5);
+    return next;
+  }, [assignedStudents]);
 
-  const performanceData = chartData.length > 0 ? chartData : [{ name: 'No Data', score: 0 }];
+  const chartData = useMemo(() => {
+    return Object.entries(classData).map(([key, val]) => ({
+      name: key,
+      score: val.avg,
+      students: assignedStudents.filter(s => `${s.class}-${s.section}` === key).length
+    }));
+  }, [classData, assignedStudents]);
+
+  const topWeakTopics = useMemo(() => {
+    const weakTopicsMap = {};
+    for (const s of assignedStudents) {
+      const studentPerf = getStudentPerformance(s.id);
+      for (const [topic, score] of studentPerf?.weakTopics || []) {
+        if (!weakTopicsMap[topic]) weakTopicsMap[topic] = { count: 0, totalScore: 0 };
+        weakTopicsMap[topic].count++;
+        weakTopicsMap[topic].totalScore += score;
+      }
+    }
+
+    return Object.entries(weakTopicsMap)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 5);
+  }, [assignedStudents, getStudentPerformance]);
+
+  const performanceData = useMemo(() => {
+    return chartData.length > 0 ? chartData : [{ name: 'No Data', score: 0 }];
+  }, [chartData]);
 
   const getScoreColor = (score) => {
     if (score >= 70) return 'text-emerald-600';
@@ -321,7 +334,7 @@ export default function TeacherOverview() {
                 <div className="bg-slate-50 rounded-xl p-4 text-center">
                   <p className="text-sm text-slate-500">Best Score</p>
                   <p className="text-2xl font-bold text-emerald-600">
-                    {Math.max(...selectedStudent?.scores.map(s => s.score))}%
+                    {Math.max(...(selectedStudent?.scores?.map(s => s.score) || [0]))}%
                   </p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-4 text-center">

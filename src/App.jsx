@@ -7,8 +7,12 @@ import StudentDashboard from './components/student/StudentDashboard';
 import Layout from './components/Layout';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
-  const { currentUser } = useSchool();
+  const { currentUser, authLoading, dataLoading } = useSchool();
   
+  if (authLoading || dataLoading) {
+    return <div className="p-8">Loading...</div>;
+  }
+
   if (!currentUser) {
     return <Navigate to="/login" replace />;
   }
@@ -21,7 +25,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 };
 
 const AppRoutes = () => {
-  const { currentUser } = useSchool();
+  const { currentUser, authLoading, dataLoading } = useSchool();
   
   return (
     <Routes>
@@ -48,7 +52,9 @@ const AppRoutes = () => {
         </ProtectedRoute>
       } />
       <Route path="/" element={
-        currentUser ? (
+        authLoading || dataLoading ? (
+          <div className="p-8">Loading...</div>
+        ) : currentUser ? (
           <Navigate to={`/${currentUser.role}`} replace />
         ) : (
           <Navigate to="/login" replace />

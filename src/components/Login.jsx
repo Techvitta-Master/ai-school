@@ -15,28 +15,25 @@ export default function Login() {
   const { login } = useSchool();
   const navigate = useNavigate();
 
-  const demoCredentials = {
-    admin: { email: 'admin@school.com', password: 'admin123' },
-    teacher: { email: 'priya@school.com', password: 'teacher123' },
-    student: { email: 'aarav.patel@student.com', password: 'student123' }
+  const demoEmails = {
+    admin: 'admin@school.com',
+    teacher: 'priya@school.com',
+    student: 'aarav.patel@student.com'
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    const success = login(role, email, password);
-    if (success) {
-      navigate(`/${role}`);
-    } else {
-      setError('Invalid credentials. Please try again.');
-    }
+
+    const result = await login(email, password);
+    if (result?.success && result.role) navigate(`/${result.role}`);
+    else setError('Invalid credentials. Please try again.');
   };
 
   const fillDemo = (demoRole) => {
     setRole(demoRole);
-    const creds = demoCredentials[demoRole];
-    setEmail(creds.email);
-    setPassword(creds.password);
+    setEmail(demoEmails[demoRole] || '');
+    setPassword('');
   };
 
   return (
