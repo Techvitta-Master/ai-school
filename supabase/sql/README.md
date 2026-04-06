@@ -12,7 +12,13 @@ Run these files in Supabase SQL Editor exactly in this order:
 4. `004_storage_setup.sql`
 5. `005_rls_policies.sql`
 6. `006_edge_function_support.sql`
-7. `007_seed_minimal.sql` (optional sample data)
+7. `007_seed_minimal.sql` (optional minimal sample — skip if using `011_demo_seed.sql`)
+8. `008_optional_profile_fields.sql` (extra columns for UI parity)
+9. `009_rls_curriculum_reads.sql` (teachers/tests readable across staff for curriculum UIs)
+10. `010_syllabus_seed.sql` (full syllabus from `data-ch.json`; regenerate with `node scripts/generate-syllabus-seed.mjs` after editing the JSON)
+11. `011_demo_seed.sql` (optional demo sections, teachers, students, tests, scores — matches default demo emails in the app)
+
+**Recommended for the normalized app:** run `001`–`006`, then `008`, `009`, `010`, `011`. Omit `007` if you rely on `011` for sample rows.
 
 ## What You Must Do Before Testing App Login
 

@@ -77,8 +77,11 @@ export default function UploadAnalyze() {
         studentWisePerformance: analysis?.studentWisePerformance || [],
       });
 
-      // Persist analysis onto the selected test (via our Supabase JSON state row).
-      uploadTestAnalysis(selectedTestId, analysis);
+      uploadTestAnalysis(selectedTestId, {
+        analysis,
+        bucket,
+        storagePath,
+      });
     } catch (error) {
       console.error('Analysis failed:', error);
       setUploadError(error?.message || 'Analysis failed. Please try again.');

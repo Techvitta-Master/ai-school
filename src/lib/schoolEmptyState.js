@@ -1,0 +1,29 @@
+/** Empty shell before DB hydration (no mock dataset in bundle). */
+export const emptySchoolData = {
+  syllabus: {
+    book: '',
+    class: 6,
+    subject: 'Social Science',
+    syllabus_year: '',
+    published_by: '',
+    total_chapters: 0,
+    themes: [],
+  },
+  teachers: [],
+  students: [],
+  tests: [],
+  sections: [],
+  classes: [6, 7, 8],
+  subjects: [
+    'Social Science',
+    'Mathematics',
+    'English',
+    'Science',
+    'Hindi',
+    'Sanskrit',
+    'Computer Science',
+    'Physical Education',
+    'Art & Craft',
+    'Music',
+  ],
+};

@@ -196,7 +196,7 @@ export default function Performance() {
 
         {selectedStudent && (
           <div className="mt-4 space-y-3">
-            {data.students.find(s => s.id === selectedStudent)?.scores.map(score => {
+            {(data.students.find(s => s.id === selectedStudent)?.scores || []).map(score => {
               const test = data.tests.find(t => t.id === score.testId);
               return (
                 <div key={score.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">

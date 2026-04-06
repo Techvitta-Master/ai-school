@@ -16,9 +16,9 @@ export default function Login() {
   const navigate = useNavigate();
 
   const demoEmails = {
-    admin: 'admin@school.com',
-    teacher: 'priya@school.com',
-    student: 'aarav.patel@student.com'
+    admin: import.meta.env.VITE_DEMO_EMAIL_ADMIN || 'admin@school.com',
+    teacher: import.meta.env.VITE_DEMO_EMAIL_TEACHER || 'priya@school.com',
+    student: import.meta.env.VITE_DEMO_EMAIL_STUDENT || 'aarav.patel@student.com',
   };
 
   const handleSubmit = async (e) => {
