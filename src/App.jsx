@@ -1,7 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SchoolProvider, useSchool } from './context/SchoolContext';
 import Login from './components/Login';
+import Register from './components/Register';
 import AdminDashboard from './components/admin/AdminDashboard';
+import SchoolDashboard from './components/school/SchoolDashboard';
 import TeacherDashboard from './components/teacher/TeacherDashboard';
 import StudentDashboard from './components/student/StudentDashboard';
 import Layout from './components/Layout';
@@ -30,10 +32,18 @@ const AppRoutes = () => {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
       <Route path="/admin/*" element={
         <ProtectedRoute allowedRoles={['admin']}>
           <Layout role="admin">
             <AdminDashboard />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/school/*" element={
+        <ProtectedRoute allowedRoles={['school']}>
+          <Layout role="school">
+            <SchoolDashboard />
           </Layout>
         </ProtectedRoute>
       } />

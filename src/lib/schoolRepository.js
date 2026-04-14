@@ -13,34 +13,55 @@ function topicsToArray(topics) {
 
 /**
  * Load full school graph and map to the legacy `data` shape expected by the UI.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{ schoolId?: string | null }} [options] When set, restrict teachers/students/scores to that school org.
  */
-export async function loadSchoolData(supabase) {
+export async function loadSchoolData(supabase, options = {}) {
   if (!supabase) return { ...emptySchoolData };
+
+  const { schoolId = null } = options;
 
   const [
     { data: themeRows, error: e1 },
     { data: chapterRows, error: e2 },
     { data: sectionRows, error: e3 },
-    { data: teacherRows, error: e4 },
-    { data: tsaRows, error: e5 },
-    { data: studentRows, error: e6 },
-    { data: scoreRows, error: e7 },
-    { data: testRows, error: e8 },
-    { data: analysisRows, error: e9 },
   ] = await Promise.all([
     supabase.from('syllabus_themes').select('id, theme_code, title, domain').order('title'),
     supabase.from('syllabus_chapters').select('id, theme_id, chapter_number, title, topics').order('chapter_number'),
     supabase.from('sections').select('id, class_name, section_name, strength, class_teacher_id'),
-    supabase
-      .from('teachers')
-      .select('id, name, email, phone, subject, experience, education, join_date, user_id'),
-    supabase.from('teacher_section_assignments').select('id, teacher_id, section_id, subject'),
-    supabase
-      .from('students')
-      .select(
-        'id, name, email, roll_no, section_id, attendance, assigned_teacher_id, parent_name, parent_phone, address'
-      ),
-    supabase.from('scores').select('id, student_id, test_id, score, topic_scores, graded_at, updated_at'),
+  ]);
+
+  let tq = supabase
+    .from('teachers')
+    .select('id, name, email, phone, subject, experience, education, join_date, user_id, school_id');
+  if (schoolId) tq = tq.eq('school_id', schoolId);
+  const { data: teacherRows, error: e4 } = await tq;
+
+  let sq = supabase.from('students').select(
+    'id, name, email, roll_no, section_id, attendance, assigned_teacher_id, parent_name, parent_phone, address, school_id'
+  );
+  if (schoolId) sq = sq.eq('school_id', schoolId);
+  const { data: studentRows, error: e6 } = await sq;
+
+  const studentIds = (studentRows || []).map((s) => s.id);
+  let scoreQuery = supabase.from('scores').select('id, student_id, test_id, score, topic_scores, graded_at, updated_at');
+  if (schoolId) {
+    if (studentIds.length === 0) {
+      scoreQuery = scoreQuery.eq('student_id', '00000000-0000-0000-0000-000000000000');
+    } else {
+      scoreQuery = scoreQuery.in('student_id', studentIds);
+    }
+  }
+  const { data: scoreRows, error: e7 } = await scoreQuery;
+
+  const { data: tsaRows, error: e5 } = await supabase
+    .from('teacher_section_assignments')
+    .select('id, teacher_id, section_id, subject');
+
+  const teacherIdSet = new Set((teacherRows || []).map((t) => t.id));
+  const tsaFiltered = schoolId ? (tsaRows || []).filter((a) => teacherIdSet.has(a.teacher_id)) : tsaRows || [];
+
+  const [{ data: testRows, error: e8 }, { data: analysisRows, error: e9 }] = await Promise.all([
     supabase
       .from('tests')
       .select(
@@ -78,7 +99,7 @@ export async function loadSchoolData(supabase) {
 
   const teachers = (teacherRows || []).map((t) => {
     const classes = [];
-    for (const a of tsaRows || []) {
+    for (const a of tsaFiltered || []) {
       if (a.teacher_id !== t.id) continue;
       const sec = sectionById[a.section_id];
       if (!sec) continue;
@@ -103,7 +124,7 @@ export async function loadSchoolData(supabase) {
   });
 
   const sections = (sectionRows || []).map((s) => {
-    const teachersOnSection = (tsaRows || [])
+    const teachersOnSection = (tsaFiltered || [])
       .filter((a) => a.section_id === s.id)
       .map((a) => ({
         teacherId: a.teacher_id,
@@ -221,6 +242,7 @@ export async function insertTeacher(supabase, row) {
     experience: row.experience != null && row.experience !== '' ? Number(row.experience) : null,
     education: row.education || null,
     join_date: row.joinDate || null,
+    school_id: row.schoolId ?? row.school_id ?? null,
   };
   const { data, error } = await supabase.from('teachers').insert(payload).select('id').single();
   if (error) throw error;
@@ -248,6 +270,7 @@ export async function insertStudent(supabase, row, sectionIdMap) {
     parent_name: row.parentName || null,
     parent_phone: row.parentPhone || null,
     address: row.address || null,
+    school_id: row.schoolId ?? row.school_id ?? null,
   };
   const { data, error } = await supabase.from('students').insert(payload).select('id').single();
   if (error) throw error;

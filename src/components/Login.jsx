@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useSchool } from '../context/SchoolContext';
 import { GraduationCap, Mail, Lock, Eye, EyeOff, ChevronRight, Sparkles } from 'lucide-react';
 import { Card, CardContent } from './ui/card';
@@ -7,6 +7,7 @@ import { Button } from './ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 export default function Login() {
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -14,12 +15,15 @@ export default function Login() {
   const [role, setRole] = useState('teacher');
   const { login } = useSchool();
   const navigate = useNavigate();
+  const successMessage = location.state?.successMessage;
 
   const demoEmails = {
     admin: import.meta.env.VITE_DEMO_EMAIL_ADMIN || 'admin@school.com',
+    school: import.meta.env.VITE_DEMO_EMAIL_SCHOOL || 'school@school.com',
     teacher: import.meta.env.VITE_DEMO_EMAIL_TEACHER || 'priya@school.com',
     student: import.meta.env.VITE_DEMO_EMAIL_STUDENT || 'aarav.patel@student.com',
   };
+  const demoPassword = '123456';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,7 +37,7 @@ export default function Login() {
   const fillDemo = (demoRole) => {
     setRole(demoRole);
     setEmail(demoEmails[demoRole] || '');
-    setPassword('');
+    setPassword(demoPassword);
   };
 
   return (
@@ -99,9 +103,12 @@ export default function Login() {
           </div>
 
           <Tabs value={role} onValueChange={setRole} className="w-full">
-            <TabsList className="grid w-full grid-cols-3 p-1 bg-slate-100 rounded-xl">
+            <TabsList className="grid w-full grid-cols-4 p-1 bg-slate-100 rounded-xl">
               <TabsTrigger value="admin" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
                 Admin
+              </TabsTrigger>
+              <TabsTrigger value="school" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                School
               </TabsTrigger>
               <TabsTrigger value="teacher" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
                 Teacher
@@ -141,6 +148,21 @@ export default function Login() {
               </Card>
             </TabsContent>
 
+            <TabsContent value="school" className="mt-6">
+              <Card className="border-0 shadow-lg">
+                <CardContent className="p-6 space-y-6">
+                  <button
+                    type="button"
+                    onClick={() => fillDemo('school')}
+                    className="w-full py-3 px-4 bg-indigo-50 text-indigo-700 rounded-xl font-medium hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2"
+                  >
+                    Use School Demo Account
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
             <TabsContent value="student" className="mt-6">
               <Card className="border-0 shadow-lg">
                 <CardContent className="p-6 space-y-6">
@@ -159,6 +181,10 @@ export default function Login() {
 
           <Card className="border-0 shadow-lg">
             <CardContent className="p-6 space-y-5">
+              {successMessage && (
+                <p className="text-sm text-green-700 bg-green-50 px-4 py-2 rounded-lg">{successMessage}</p>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-700">Email</label>
@@ -203,6 +229,13 @@ export default function Login() {
                   Sign In
                 </Button>
               </form>
+
+              <p className="text-sm text-center text-slate-600">
+                New here?{' '}
+                <Link to="/register" className="text-indigo-600 hover:underline font-medium">
+                  Create an account
+                </Link>
+              </p>
             </CardContent>
           </Card>
 
