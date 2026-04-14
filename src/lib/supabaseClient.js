@@ -16,6 +16,9 @@ export const supabase =
           persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: true,
+          // Default Web Locks (navigator.locks) can deadlock or throw NavigatorLockAcquireTimeoutError
+          // in dev (Strict Mode), multi-tab, or after lock steal — blocking getSession() and leaving the app on "Loading...".
+          lock: async (_name, _acquireTimeout, fn) => await fn(),
         },
       })
     : null;

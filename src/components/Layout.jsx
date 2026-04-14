@@ -20,6 +20,14 @@ const roleConfig = {
       { path: '/admin/performance', label: 'Analytics', icon: BarChart3 },
     ]
   },
+  school: {
+    title: 'Dashboard',
+    items: [
+      { path: '/school', label: 'Overview', icon: LayoutDashboard },
+      { path: '/school/teachers', label: 'Teachers', icon: Users },
+      { path: '/school/students', label: 'Students', icon: StudentIcon },
+    ]
+  },
   teacher: {
     title: 'Dashboard',
     items: [
@@ -49,6 +57,7 @@ export default function Layout({ children, role }) {
   const getRoleBadgeColor = (role) => {
     switch (role) {
       case 'admin': return 'bg-purple-100 text-purple-700';
+      case 'school': return 'bg-amber-100 text-amber-800';
       case 'teacher': return 'bg-blue-100 text-blue-700';
       case 'student': return 'bg-emerald-100 text-emerald-700';
       default: return 'bg-slate-100 text-slate-700';
@@ -152,7 +161,17 @@ export default function Layout({ children, role }) {
             </button>
             <div>
               <h1 className="text-lg font-semibold text-slate-900 capitalize">{config.title}</h1>
-              <p className="text-xs text-slate-500">{role === 'admin' ? 'School Management' : role === 'teacher' ? 'Teaching Portal' : 'Student Portal'}</p>
+              <p className="text-xs text-slate-500">
+                {role === 'school' && currentUser?.schoolName
+                  ? currentUser.schoolName
+                  : role === 'admin'
+                    ? 'School Management'
+                    : role === 'school'
+                      ? 'School organization'
+                      : role === 'teacher'
+                        ? 'Teaching Portal'
+                        : 'Student Portal'}
+              </p>
             </div>
           </div>
 

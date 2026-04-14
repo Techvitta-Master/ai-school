@@ -13,7 +13,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, A
 export default function AdminOverview() {
   // Keep both getters available for consistency with other dashboards.
   // `getTeacherPerformance` isn't used in this component, so we alias to avoid lint noise.
-  const { data, getStudentPerformance, getTeacherPerformance: _getTeacherPerformance } = useSchool();
+  const { data, getStudentPerformance, getTeacherPerformance: _getTeacherPerformance, currentUser } = useSchool();
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('name');
@@ -121,6 +121,9 @@ export default function AdminOverview() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Welcome back!</h1>
           <p className="text-slate-500 mt-1">Here&apos;s what&apos;s happening at your school</p>
+          {currentUser?.role === 'school' && currentUser.schoolName ? (
+            <p className="text-sm font-medium text-amber-800 mt-2">Showing data for: {currentUser.schoolName}</p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2 text-sm">
           <Clock className="w-4 h-4 text-slate-400" />

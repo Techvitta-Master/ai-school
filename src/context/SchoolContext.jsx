@@ -6,6 +6,64 @@ import { resolveCurrentUser } from '../lib/resolveCurrentUser';
 import * as repo from '../lib/schoolRepository';
 
 const SchoolContext = createContext();
+const DEMO_PASSWORD = '123456';
+const DEMO_USER_STORAGE_KEY = 'demoCurrentUser';
+const DEMO_SCHOOL_ID = 'a0000001-0000-4000-8000-000000000001';
+const normalizeEmail = (value) => (value || '').trim().toLowerCase();
+const DEMO_USERS = {
+  [normalizeEmail(import.meta.env.VITE_DEMO_EMAIL_ADMIN || 'admin@school.com')]: {
+    role: 'admin',
+    id: 'admin',
+    name: 'School Admin',
+  },
+  [normalizeEmail(import.meta.env.VITE_DEMO_EMAIL_SCHOOL || 'school@school.com')]: {
+    role: 'school',
+    id: 'school-demo',
+    name: 'Riverside School Admin',
+    schoolId: DEMO_SCHOOL_ID,
+    schoolName: 'Riverside International School',
+  },
+  [normalizeEmail(import.meta.env.VITE_DEMO_EMAIL_TEACHER || 'priya@school.com')]: {
+    role: 'teacher',
+    id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1',
+    name: 'Priya Sharma',
+    subject: 'Social Science',
+    schoolId: DEMO_SCHOOL_ID,
+  },
+  [normalizeEmail(import.meta.env.VITE_DEMO_EMAIL_STUDENT || 'aarav.patel@student.com')]: {
+    role: 'student',
+    id: 'cccccccc-cccc-cccc-cccc-ccccccccccc1',
+    name: 'Aarav Patel',
+    schoolId: DEMO_SCHOOL_ID,
+  },
+};
+
+const getStoredDemoUser = () => {
+  try {
+    const raw = window.localStorage.getItem(DEMO_USER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const storeDemoUser = (user) => {
+  try {
+    window.localStorage.setItem(DEMO_USER_STORAGE_KEY, JSON.stringify(user));
+  } catch {
+    // Ignore storage failures (private mode / quota issues).
+  }
+};
+
+const clearStoredDemoUser = () => {
+  try {
+    window.localStorage.removeItem(DEMO_USER_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures.
+  }
+};
 
 export const useSchool = () => {
   const context = useContext(SchoolContext);
@@ -27,9 +85,10 @@ export const SchoolProvider = ({ children }) => {
 
   const refreshData = useCallback(async () => {
     if (!supabase) return;
-    const next = await repo.loadSchoolData(supabase);
+    const schoolId = currentUser?.role === 'school' ? currentUser.schoolId : null;
+    const next = await repo.loadSchoolData(supabase, { schoolId });
     setData(next);
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     let isMounted = true;
@@ -45,20 +104,37 @@ export const SchoolProvider = ({ children }) => {
         return;
       }
 
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (!isMounted) return;
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (!isMounted) return;
 
-      if (sessionError) {
-        setAuthError(sessionError.message);
-        setCurrentUser(null);
-        setAuthLoading(false);
-        return;
+        if (sessionError) {
+          setAuthError(sessionError.message);
+          setCurrentUser(null);
+          return;
+        }
+
+        const user = sessionData?.session?.user ?? null;
+        if (!user) {
+          setCurrentUser(getStoredDemoUser());
+          return;
+        }
+        let resolved = null;
+        try {
+          resolved = await resolveCurrentUser(supabase, user);
+        } catch (err) {
+          setAuthError(err?.message || 'Failed to resolve user.');
+        }
+        if (!isMounted) return;
+        setCurrentUser(resolved);
+      } catch (err) {
+        if (isMounted) {
+          setAuthError(err?.message || 'Auth initialization failed.');
+          setCurrentUser(null);
+        }
+      } finally {
+        if (isMounted) setAuthLoading(false);
       }
-
-      const user = sessionData?.session?.user ?? null;
-      const resolved = await resolveCurrentUser(supabase, user);
-      setCurrentUser(resolved);
-      setAuthLoading(false);
     };
 
     init();
@@ -66,9 +142,19 @@ export const SchoolProvider = ({ children }) => {
     if (!supabase) return () => {};
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const user = session?.user ?? null;
-      const resolved = await resolveCurrentUser(supabase, user);
-      setCurrentUser(resolved);
+      try {
+        const user = session?.user ?? null;
+        if (!user) {
+          setCurrentUser(getStoredDemoUser());
+          return;
+        }
+        clearStoredDemoUser();
+        const resolved = await resolveCurrentUser(supabase, user);
+        setCurrentUser(resolved);
+      } catch (err) {
+        setAuthError(err?.message || 'Failed to refresh user.');
+        setCurrentUser(null);
+      }
     });
 
     return () => {
@@ -94,9 +180,17 @@ export const SchoolProvider = ({ children }) => {
         return;
       }
 
+      if (currentUser.role === 'school' && !currentUser.schoolId) {
+        setData({ ...emptySchoolData });
+        setDataLoading(false);
+        setAuthError('Your account is not linked to a school. Contact support.');
+        return;
+      }
+
       setDataLoading(true);
       try {
-        const remote = await repo.loadSchoolData(supabase);
+        const schoolId = currentUser.role === 'school' ? currentUser.schoolId : null;
+        const remote = await repo.loadSchoolData(supabase, { schoolId });
         if (!cancelled) {
           setData(remote);
           setAuthError(null);
@@ -122,6 +216,14 @@ export const SchoolProvider = ({ children }) => {
 
   const login = async (email, password) => {
     setAuthError(null);
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    const demoUser = DEMO_USERS[normalizedEmail];
+
+    if (demoUser && password === DEMO_PASSWORD) {
+      setCurrentUser(demoUser);
+      storeDemoUser(demoUser);
+      return { success: true, role: demoUser.role };
+    }
 
     if (!supabase) {
       setAuthError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
@@ -138,6 +240,7 @@ export const SchoolProvider = ({ children }) => {
       return { success: false, role: null };
     }
 
+    clearStoredDemoUser();
     const nextUser = await resolveCurrentUser(supabase, signInData.user);
     setCurrentUser(nextUser);
     return { success: true, role: nextUser?.role ?? null };
@@ -146,6 +249,7 @@ export const SchoolProvider = ({ children }) => {
   const logout = async () => {
     setAuthError(null);
     try {
+      clearStoredDemoUser();
       await supabase?.auth.signOut();
     } finally {
       setCurrentUser(null);
@@ -156,7 +260,11 @@ export const SchoolProvider = ({ children }) => {
   const addTeacher = async (teacher) => {
     if (!supabase) return;
     try {
-      await repo.insertTeacher(supabase, teacher);
+      const payload = { ...teacher };
+      if (currentUser?.role === 'school' && currentUser.schoolId) {
+        payload.schoolId = currentUser.schoolId;
+      }
+      await repo.insertTeacher(supabase, payload);
       await refreshData();
     } catch (err) {
       setAuthError(err?.message || 'Failed to add teacher.');
@@ -177,7 +285,11 @@ export const SchoolProvider = ({ children }) => {
     if (!supabase) return;
     try {
       const sectionIdMap = await repo.fetchSectionIdMap(supabase);
-      await repo.insertStudent(supabase, student, sectionIdMap);
+      const payload = { ...student };
+      if (currentUser?.role === 'school' && currentUser.schoolId) {
+        payload.schoolId = currentUser.schoolId;
+      }
+      await repo.insertStudent(supabase, payload, sectionIdMap);
       await refreshData();
     } catch (err) {
       setAuthError(err?.message || 'Failed to add student.');
