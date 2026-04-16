@@ -1,0 +1,41 @@
+---
+description: Supabase-specific patterns for this repo. Auto-applies to src/lib/** and supabase/**.
+globs: ["src/lib/**/*.js", "src/lib/**/*.jsx", "supabase/**/*.sql"]
+alwaysApply: false
+---
+
+# Supabase patterns
+
+## Client
+- Import from `src/lib/supabaseClient.js` which exports a singleton `supabase` client.
+- Always guard with `if (!supabase) throw new Error('Supabase is not configured.')`.
+
+## Reads (loading school graph)
+- Use `loadSchoolData(supabase, { schoolId })` from `schoolRepository.js`.
+- Never fetch the full graph from inside a component — rely on `SchoolContext`.
+
+## Writes
+- Each mutation is a named function in `schoolRepository.js` (e.g. `insertTeacher`, `insertStudent`).
+- Always `.select()` after insert/update if the UI needs the resulting row.
+- Use `.upsert({...}, { onConflict: '<columns>' })` for idempotent inserts.
+
+## RLS
+- Every new table REQUIRES RLS policies in the same migration that creates it.
+- Write policies for: admin (full), teacher (scoped to their sections), student (scoped to own row).
+- Test RLS by switching demo users and attempting forbidden actions.
+
+## Storage
+- Buckets: `answer-sheets` (private), `test-analyses` (private).
+- Storage paths: `<teacher_id>/<timestamp>-<safe_filename>.<ext>`.
+- Never store PII or sensitive data in object metadata.
+
+## Migrations
+- Name: `supabase/sql/NNN_description.sql` where NNN is monotonically increasing.
+- Always wrap in `begin; ... commit;`.
+- Use `create table if not exists`, `create policy if not exists` patterns for idempotency.
+- Never edit old migrations — always add a new one.
+
+## Evaluation service
+- `src/lib/evaluationService.js` is the ONLY place that writes to `answer_sheets` and `evaluations` tables.
+- Current implementation is a dummy random evaluator — keep the interface pluggable so real AI can drop in later.
+- Return shape: `{ marks, grade, perQuestionScores, topicRCA, improvementPlan, feedback }`.

@@ -13,7 +13,7 @@ export const emptySchoolData = {
   students: [],
   tests: [],
   sections: [],
-  classes: [6, 7, 8],
+  classes: [6, 7, 8, 9, 10],
   subjects: [
     'Social Science',
     'Mathematics',

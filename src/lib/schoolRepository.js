@@ -44,15 +44,33 @@ export async function loadSchoolData(supabase, options = {}) {
   const { data: studentRows, error: e6 } = await sq;
 
   const studentIds = (studentRows || []).map((s) => s.id);
-  let scoreQuery = supabase.from('scores').select('id, student_id, test_id, score, topic_scores, graded_at, updated_at');
-  if (schoolId) {
-    if (studentIds.length === 0) {
-      scoreQuery = scoreQuery.eq('student_id', '00000000-0000-0000-0000-000000000000');
+
+  // Scores — short-circuit if no students in scope (avoids sentinel UUID and 400s)
+  let scoreRows = [];
+  let e7 = null;
+  if (!schoolId || studentIds.length > 0) {
+    // Try with feedback/grade columns first (migration 015).
+    // Fall back to basic columns if those don't exist yet (400 / column not found).
+    let baseScoreQuery = supabase
+      .from('scores')
+      .select('id, student_id, test_id, score, topic_scores, feedback, grade, graded_at, updated_at');
+    if (schoolId) baseScoreQuery = baseScoreQuery.in('student_id', studentIds);
+
+    const { data: sd1, error: se1 } = await baseScoreQuery;
+    if (se1) {
+      // Likely missing feedback/grade columns — retry without them
+      let fallbackQuery = supabase
+        .from('scores')
+        .select('id, student_id, test_id, score, topic_scores, graded_at, updated_at');
+      if (schoolId) fallbackQuery = fallbackQuery.in('student_id', studentIds);
+      const { data: sd2, error: se2 } = await fallbackQuery;
+      scoreRows = sd2 || [];
+      e7 = se2; // only hard-fail on the fallback error
     } else {
-      scoreQuery = scoreQuery.in('student_id', studentIds);
+      scoreRows = sd1 || [];
+      e7 = null;
     }
   }
-  const { data: scoreRows, error: e7 } = await scoreQuery;
 
   const { data: tsaRows, error: e5 } = await supabase
     .from('teacher_section_assignments')
@@ -61,16 +79,21 @@ export async function loadSchoolData(supabase, options = {}) {
   const teacherIdSet = new Set((teacherRows || []).map((t) => t.id));
   const tsaFiltered = schoolId ? (tsaRows || []).filter((a) => teacherIdSet.has(a.teacher_id)) : tsaRows || [];
 
-  const [{ data: testRows, error: e8 }, { data: analysisRows, error: e9 }] = await Promise.all([
-    supabase
-      .from('tests')
-      .select(
-        'id, title, theme_id, chapter_id, domain, topics, duration_minutes, total_marks, test_type, created_by_teacher_id, created_at, updated_at'
-      ),
-    supabase.from('test_analyses').select('id, test_id, analysis, created_at, bucket, storage_path, uploaded_by_teacher_id'),
-  ]);
+  const { data: testRows, error: e8 } = await supabase
+    .from('tests')
+    .select(
+      'id, title, theme_id, chapter_id, domain, topics, duration_minutes, total_marks, test_type, created_by_teacher_id, created_at, updated_at'
+    );
 
-  const err = e1 || e2 || e3 || e4 || e5 || e6 || e7 || e8 || e9;
+  // test_analyses is optional — if the table doesn't exist yet, swallow the error
+  const { data: rawAnalysisRows } = await supabase
+    .from('test_analyses')
+    .select('id, test_id, analysis, created_at, bucket, storage_path, uploaded_by_teacher_id')
+    .then(r => r, () => ({ data: null }));
+  const analysisRows = rawAnalysisRows || [];
+
+  // Throw only on hard errors (core tables: themes, chapters, sections, teachers, students, TSA, tests)
+  const err = e1 || e2 || e3 || e4 || e5 || e6 || e7 || e8;
   if (err) throw err;
 
   const themeById = Object.fromEntries((themeRows || []).map((t) => [t.id, t]));
@@ -179,6 +202,8 @@ export async function loadSchoolData(supabase, options = {}) {
       date: sc.graded_at,
       score: Number(sc.score),
       topicScores: sc.topic_scores && typeof sc.topic_scores === 'object' ? sc.topic_scores : {},
+      feedback: sc.feedback || null,
+      grade: sc.grade || null,
       updatedAt: sc.updated_at,
     });
   }
@@ -207,7 +232,7 @@ export async function loadSchoolData(supabase, options = {}) {
     students,
     tests,
     sections,
-    classes: [6, 7, 8],
+    classes: [6, 7, 8, 9, 10],
     subjects: emptySchoolData.subjects,
   };
 }
@@ -377,6 +402,8 @@ export async function insertScore(supabase, studentId, testId, scoreData) {
     test_id: testId,
     score: scoreData.score,
     topic_scores: scoreData.topicScores || {},
+    feedback: scoreData.feedback || null,
+    grade: scoreData.grade || null,
   };
   const { error } = await supabase.from('scores').upsert(payload, {
     onConflict: 'student_id,test_id',
@@ -417,4 +444,141 @@ export async function fetchSectionIdMap(supabase) {
     map.set(`${parseClassName(r.class_name)}-${r.section_name}`, r.id);
   }
   return map;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Answer sheets
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Save an answer sheet record (file already uploaded to storage).
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {{ testId: string, studentId?: string, rollNo?: string, bucket?: string, storagePath: string, teacherId: string }} row
+ * @returns {Promise<string>} inserted row id
+ */
+export async function insertAnswerSheet(supabase, row) {
+  const payload = {
+    test_id: row.testId,
+    student_id: row.studentId || null,
+    roll_no: row.rollNo || null,
+    bucket: row.bucket || 'answer-sheets',
+    storage_path: row.storagePath || '',
+    status: 'uploaded',
+    uploaded_by_teacher_id: row.teacherId || null,
+  };
+  const { data, error } = await supabase
+    .from('answer_sheets')
+    .insert(payload)
+    .select('id')
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+/**
+ * Update the status of an answer sheet (e.g. after evaluation).
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} id - answer sheet row id
+ * @param {'uploaded' | 'processing' | 'evaluated'} status
+ */
+export async function updateAnswerSheetStatus(supabase, id, status) {
+  const { error } = await supabase
+    .from('answer_sheets')
+    .update({ status })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+/**
+ * Look up a student by roll_no within a section to link an answer sheet.
+ * Returns the student id or null.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} rollNo
+ * @param {string} sectionId
+ * @returns {Promise<string | null>}
+ */
+export async function findStudentIdByRollNo(supabase, rollNo, sectionId) {
+  const { data, error } = await supabase
+    .from('students')
+    .select('id')
+    .eq('roll_no', String(rollNo))
+    .eq('section_id', sectionId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.id ?? null;
+}
+
+/**
+ * Fetch all answer sheets for a given test.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} testId
+ */
+export async function fetchAnswerSheetsByTest(supabase, testId) {
+  const { data, error } = await supabase
+    .from('answer_sheets')
+    .select('id, test_id, student_id, roll_no, bucket, storage_path, status, uploaded_by_teacher_id, created_at')
+    .eq('test_id', testId)
+    .order('created_at');
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Fetch all answer sheets uploaded by a teacher.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} teacherId
+ */
+export async function fetchAnswerSheetsByTeacher(supabase, teacherId) {
+  const { data, error } = await supabase
+    .from('answer_sheets')
+    .select('id, test_id, student_id, roll_no, bucket, storage_path, status, uploaded_by_teacher_id, created_at')
+    .eq('uploaded_by_teacher_id', teacherId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Evaluations (extends scores with feedback + grade)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Save an evaluation result. Upserts the scores row with score, topic_scores,
+ * feedback, and grade.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} studentId
+ * @param {string} testId
+ * @param {{ score: number, topicScores?: object, feedback?: string, grade?: string, gradedByTeacherId?: string }} evalData
+ */
+export async function saveEvaluation(supabase, studentId, testId, evalData) {
+  const payload = {
+    student_id: studentId,
+    test_id: testId,
+    score: evalData.score,
+    topic_scores: evalData.topicScores || {},
+    feedback: evalData.feedback || null,
+    grade: evalData.grade || null,
+  };
+  if (evalData.gradedByTeacherId) {
+    payload.graded_by_teacher_id = evalData.gradedByTeacherId;
+  }
+  const { error } = await supabase.from('scores').upsert(payload, {
+    onConflict: 'student_id,test_id',
+  });
+  if (error) throw error;
+}
+
+/**
+ * Fetch evaluations (scores with feedback) for a student.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {string} studentId
+ */
+export async function fetchEvaluationsByStudent(supabase, studentId) {
+  const { data, error } = await supabase
+    .from('scores')
+    .select('id, test_id, score, topic_scores, feedback, grade, graded_at, updated_at')
+    .eq('student_id', studentId)
+    .order('graded_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
 }

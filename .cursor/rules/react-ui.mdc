@@ -1,0 +1,69 @@
+---
+description: React UI patterns and Tailwind styling conventions for this MVP.
+globs: ["src/components/**/*.jsx"]
+alwaysApply: false
+---
+
+# React UI patterns
+
+## Reference component
+- `src/components/school/SchoolDashboard.jsx` is the gold standard. Match its structure, spacing, and polish.
+
+## Form helpers
+Reuse `FormInput` and `FormSelect` from `SchoolDashboard.jsx` when building forms. If used in more than two places, extract to `src/components/ui/form-helpers.jsx`.
+
+## Typical page structure
+```jsx
+<div className="space-y-6">
+  <div className="flex items-center justify-between">
+    <div>
+      <h1 className="text-2xl font-bold text-slate-800">Title</h1>
+      <p className="text-slate-500 text-sm mt-1">Subtitle</p>
+    </div>
+    {/* optional action button */}
+  </div>
+
+  {/* stat cards grid */}
+  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">...</div>
+
+  {/* main content in white cards */}
+  <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">...</div>
+</div>
+```
+
+## Empty states
+Every list must have an empty state:
+```jsx
+{items.length === 0 ? (
+  <div className="text-center py-16 text-slate-400">
+    <Icon className="w-12 h-12 mx-auto mb-3 opacity-30" />
+    <p className="text-sm">No <things> yet.</p>
+  </div>
+) : ( /* actual list */ )}
+```
+
+## Loading states
+Use existing `Skeleton` from `src/components/ui/skeleton.jsx` — never a bare "Loading..." string inside cards.
+
+## Color semantics
+| Intent | Tailwind |
+|--------|----------|
+| Primary action | `bg-indigo-600 hover:bg-indigo-700 text-white` |
+| Success | `bg-emerald-600 hover:bg-emerald-700 text-white` |
+| Warning | `bg-amber-500 hover:bg-amber-600 text-white` |
+| Danger | `bg-red-500 hover:bg-red-600 text-white` |
+| Secondary | `bg-slate-100 hover:bg-slate-200 text-slate-700` |
+
+## Icons
+- From `lucide-react`, size `w-4 h-4` default, `w-5 h-5` for header icons.
+- When passing Icon as a prop, render with `createElement(Icon, { className })`.
+
+## Role-specific UX
+- Admin/School → data tables, dialogs for CRUD
+- Teacher → workflow-oriented, one clear next action per screen
+- Student → friendly, celebratory where possible (grades, achievements)
+
+## Accessibility
+- All buttons need `type="button"` unless submitting a form.
+- Inputs need associated `<label>`.
+- Never rely on color alone to convey state — add an icon or text.

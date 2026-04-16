@@ -1,0 +1,59 @@
+---
+description: Core project conventions for the AI School MVP. Auto-applies to every file.
+alwaysApply: true
+---
+
+# Project conventions
+
+## Stack
+- React 19 (function components + hooks only)
+- Vite 8, Tailwind CSS 4
+- Radix UI primitives in `src/components/ui/`
+- Supabase (Postgres + Auth + Storage)
+- Path alias `@` → `./src`
+
+## File layout
+- `src/components/<role>/` for role dashboards (admin, school, teacher, student)
+- `src/components/ui/` for reusable primitives
+- `src/lib/` for repositories, services, helpers
+- `src/context/` for React Context providers
+- `supabase/sql/NNN_description.sql` for migrations (increment NNN)
+
+## Data access
+- Components MUST NOT call `supabase.from()` directly.
+- Go through `src/lib/schoolRepository.js` or `src/lib/evaluationService.js`.
+- When adding a new table, create a matching repository module.
+
+## State
+- Global state via `SchoolContext` + `useSchool()`.
+- Local component state for UI only (form inputs, modals).
+- No Redux / Zustand / React Query without approval.
+
+## Styling
+- Cards: `bg-white rounded-2xl shadow-sm border border-gray-100 p-6`
+- Primary action: `bg-indigo-600 text-white rounded-xl hover:bg-indigo-700`
+- Inputs: `px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500`
+- Section spacing: `space-y-6`
+
+## Icons
+- Use `lucide-react` with `createElement(Icon, { className: 'w-4 h-4' })` pattern when passed as props.
+
+## Forms
+- Prefer controlled inputs with local `useState`.
+- When validation gets complex, use `react-hook-form` + `zod` (already in roadmap).
+
+## Error handling
+- Every async call in a component must handle errors (try/catch + user-visible message).
+- Use existing `authError` channel in `SchoolContext` for auth-related errors.
+
+## Comments
+- Only write comments that explain WHY, not WHAT.
+- No comments like `// Import the module` or `// Set state`.
+
+## Testing
+- Unit tests next to component: `Component.test.jsx`.
+- E2E tests under `e2e/` with Playwright.
+
+## Commit messages
+- Conventional commits: `feat:`, `fix:`, `chore:`, `refactor:`, `test:`, `docs:`.
+- Imperative mood, <72 chars subject, optional body explaining WHY.

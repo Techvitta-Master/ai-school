@@ -17,8 +17,19 @@ Run these files in Supabase SQL Editor exactly in this order:
 9. `009_rls_curriculum_reads.sql` (teachers/tests readable across staff for curriculum UIs)
 10. `010_syllabus_seed.sql` (full syllabus from `data-ch.json`; regenerate with `node scripts/generate-syllabus-seed.mjs` after editing the JSON)
 11. `011_demo_seed.sql` (optional demo sections, teachers, students, tests, scores — matches default demo emails in the app)
+12. `012_profiles_registration_columns.sql`
+13. `013_profile_on_auth_user.sql`
+14. `014a_app_role_school_enum.sql` (adds `school` value to `app_role` enum — run before `014`)
+15. `014_schools_role.sql` (schools table, school_id FK, school-role RLS)
+16. `015_answer_sheets.sql` (per-student answer sheet uploads + `feedback`/`grade` on scores)
 
-**Recommended for the normalized app:** run `001`–`006`, then `008`, `009`, `010`, `011`. Omit `007` if you rely on `011` for sample rows.
+**Recommended for the normalized app:** run `001`–`006`, then `008`–`011`, `012`–`015`. Omit `007` if you rely on `011` for sample rows.
+
+### answer-sheets bucket
+
+After running `015_answer_sheets.sql`, create the storage bucket manually in the Supabase Dashboard:
+- **Name:** `answer-sheets`
+- **Public:** No (private, access via signed URLs or RLS policies)
 
 ## What You Must Do Before Testing App Login
 
