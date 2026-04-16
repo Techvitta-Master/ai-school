@@ -1,14 +1,20 @@
 import { useState, createElement } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSchool } from '../context/SchoolContext';
-import { GraduationCap, LayoutDashboard, Users, GraduationCap as StudentIcon, BookOpen, FileText, BarChart3, LogOut, ChevronLeft, Bell, Search, Plus } from 'lucide-react';
+import {
+  GraduationCap, LayoutDashboard, Users, GraduationCap as StudentIcon,
+  BookOpen, FileText, BarChart3, LogOut, ChevronLeft, Bell, Search, Menu, X,
+} from 'lucide-react';
 import { Avatar } from './ui/avatar';
 import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { ScrollArea } from './ui/scroll-area';
 import { Badge } from './ui/badge';
 
-const roleConfig = {
+const ADMIN_ANALYTICS   = import.meta.env.VITE_ENABLE_ADMIN_ANALYTICS   === 'true';
+const ADVANCED_TEACHER  = import.meta.env.VITE_ENABLE_ADVANCED_TEACHER_TOOLS === 'true';
+
+const buildRoleConfig = () => ({
   admin: {
     title: 'Dashboard',
     items: [
@@ -16,15 +22,17 @@ const roleConfig = {
       { path: '/admin/teachers', label: 'Teachers', icon: Users },
       { path: '/admin/students', label: 'Students', icon: StudentIcon },
       { path: '/admin/sections', label: 'Classes', icon: BookOpen },
-      { path: '/admin/tests', label: 'Tests', icon: FileText },
-      { path: '/admin/performance', label: 'Analytics', icon: BarChart3 },
-    ]
+      ...(ADMIN_ANALYTICS ? [
+        { path: '/admin/tests', label: 'Tests', icon: FileText },
+        { path: '/admin/performance', label: 'Analytics', icon: BarChart3 },
+      ] : []),
+    ],
   },
   school: {
     title: 'School Admin',
     items: [
       { path: '/school', label: 'Dashboard', icon: LayoutDashboard },
-    ]
+    ],
   },
   teacher: {
     title: 'Teaching Portal',
@@ -32,7 +40,11 @@ const roleConfig = {
       { path: '/teacher', label: 'My Class', icon: Users },
       { path: '/teacher/upload', label: 'Upload & Analyze', icon: BarChart3 },
       { path: '/teacher/analytics', label: 'Analytics', icon: LayoutDashboard },
-    ]
+      ...(ADVANCED_TEACHER ? [
+        { path: '/teacher/conduct-test', label: 'Conduct Test', icon: FileText },
+        { path: '/teacher/compare', label: 'Compare Classes', icon: BookOpen },
+      ] : []),
+    ],
   },
   student: {
     title: 'Dashboard',
@@ -40,12 +52,15 @@ const roleConfig = {
       { path: '/student', label: 'Scores', icon: FileText },
       { path: '/student/performance', label: 'Performance', icon: BarChart3 },
       { path: '/student/improvement', label: 'Improvement', icon: BookOpen },
-    ]
-  }
-};
+    ],
+  },
+});
+
+const roleConfig = buildRoleConfig();
 
 export default function Layout({ children, role }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const { currentUser, logout } = useSchool();
   const navigate = useNavigate();
   const location = useLocation();
@@ -61,9 +76,27 @@ export default function Layout({ children, role }) {
     }
   };
 
+  const handleNavClick = (path) => {
+    navigate(path);
+    setMobileOpen(false);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex">
-      <aside className={`${collapsed ? 'w-[72px]' : 'w-[260px]'} bg-white border-r border-slate-200 h-screen sticky top-0 flex flex-col transition-all duration-300`}>
+      {/* Mobile overlay backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-slate-900/50 md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      <aside className={`
+        ${collapsed ? 'md:w-[72px]' : 'md:w-[260px]'}
+        bg-white border-r border-slate-200 h-screen flex flex-col transition-all duration-300
+        fixed md:sticky top-0 z-50 md:z-auto
+        ${mobileOpen ? 'flex w-[260px]' : 'hidden md:flex'}
+      `}>
         <div className="h-16 px-4 flex items-center justify-between border-b border-slate-100">
           {!collapsed ? (
             <div className="flex items-center gap-2">
@@ -77,6 +110,14 @@ export default function Layout({ children, role }) {
               <GraduationCap className="w-5 h-5 text-white" />
             </div>
           )}
+          {/* Mobile close button */}
+          <button
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            className="p-1.5 hover:bg-slate-100 rounded-lg md:hidden"
+          >
+            <X className="w-4 h-4 text-slate-500" />
+          </button>
         </div>
 
         <ScrollArea className="flex-1 px-3 py-4">
@@ -87,7 +128,7 @@ export default function Layout({ children, role }) {
                 <button
                   type="button"
                   key={path}
-                  onClick={() => navigate(path)}
+                  onClick={() => handleNavClick(path)}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
                     active
                       ? 'bg-indigo-50 text-indigo-700'
@@ -147,12 +188,21 @@ export default function Layout({ children, role }) {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white border-b border-slate-200 px-6 h-16 flex items-center justify-between sticky top-0 z-10">
-          <div className="flex items-center gap-4">
+        <header className="bg-white border-b border-slate-200 px-4 md:px-6 h-16 flex items-center justify-between sticky top-0 z-10">
+          <div className="flex items-center gap-2 md:gap-4">
+            {/* Mobile hamburger */}
+            <button
+              type="button"
+              onClick={() => setMobileOpen(true)}
+              className="p-2 hover:bg-slate-100 rounded-lg transition-colors md:hidden"
+            >
+              <Menu className="w-5 h-5 text-slate-500" />
+            </button>
+            {/* Desktop collapse toggle */}
             <button
               type="button"
               onClick={() => setCollapsed(!collapsed)}
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              className="p-2 hover:bg-slate-100 rounded-lg transition-colors hidden md:flex"
             >
               <ChevronLeft className={`w-5 h-5 text-slate-500 transition-transform ${collapsed ? 'rotate-180' : ''}`} />
             </button>

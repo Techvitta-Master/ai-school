@@ -120,7 +120,8 @@ describe('Role-based routing', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Track your students/i)).toBeInTheDocument();
+      // After redirect, teacher layout sidebar item should be visible
+      expect(screen.getByText('My Class')).toBeInTheDocument();
     });
   });
 
@@ -131,8 +132,9 @@ describe('Role-based routing', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getAllByText(/Track your students/i).length).toBeGreaterThan(0);
-      expect(screen.getAllByText('Conduct Test').length).toBeGreaterThan(0);
+      // Sidebar nav items visible in teacher layout
+      expect(screen.getAllByText('My Class').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Upload & Analyze').length).toBeGreaterThan(0);
     });
   });
 
