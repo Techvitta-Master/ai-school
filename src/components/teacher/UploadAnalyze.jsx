@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useSchool } from '../../context/SchoolContext';
 import { createAndEvaluate } from '../../lib/evaluationService';
 import {
@@ -12,19 +13,32 @@ const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'
 
 export default function UploadAnalyze() {
   const { data, currentUser, refreshData } = useSchool();
+  const [searchParams] = useSearchParams();
+  const dropzoneRef = useRef(null);
+
   const [uploading, setUploading]       = useState(false);
   const [result, setResult]             = useState(null);
   const [uploadError, setUploadError]   = useState('');
   const [selectedTestId, setSelectedTestId] = useState('');
-  const [rollNo, setRollNo]             = useState('');
+  const [rollNo, setRollNo]             = useState(() => searchParams.get('rollNo') ?? '');
   const [selectedFile, setSelectedFile] = useState(null);
   const fileInputRef = useRef(null);
 
+  // Pre-fill test selector
   useEffect(() => {
     if (!selectedTestId && data?.tests?.length) {
       setSelectedTestId(data.tests[0].id);
     }
   }, [data?.tests, selectedTestId]);
+
+  // When arriving via "Upload Sheet" shortcut, scroll to the file dropzone
+  useEffect(() => {
+    const prefill = searchParams.get('rollNo');
+    if (prefill && dropzoneRef.current) {
+      setTimeout(() => dropzoneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const validateFile = (file) => {
     if (file.size > MAX_BYTES)
@@ -338,6 +352,7 @@ export default function UploadAnalyze() {
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Step 2 — Upload Answer Sheet</p>
           <div
+            ref={dropzoneRef}
             onDrop={e => { e.preventDefault(); handleFileSelect(e.dataTransfer.files?.[0]); }}
             onDragOver={e => e.preventDefault()}
             onClick={() => fileInputRef.current?.click()}

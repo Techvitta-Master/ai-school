@@ -21,20 +21,17 @@ const roleConfig = {
     ]
   },
   school: {
-    title: 'Dashboard',
+    title: 'School Admin',
     items: [
-      { path: '/school', label: 'Overview', icon: LayoutDashboard },
-      { path: '/school/teachers', label: 'Teachers', icon: Users },
-      { path: '/school/students', label: 'Students', icon: StudentIcon },
+      { path: '/school', label: 'Dashboard', icon: LayoutDashboard },
     ]
   },
   teacher: {
-    title: 'Dashboard',
+    title: 'Teaching Portal',
     items: [
-      { path: '/teacher', label: 'Dashboard', icon: LayoutDashboard },
-      { path: '/teacher/conduct-test', label: 'Conduct Test', icon: FileText },
+      { path: '/teacher', label: 'My Class', icon: Users },
       { path: '/teacher/upload', label: 'Upload & Analyze', icon: BarChart3 },
-      { path: '/teacher/compare', label: 'Compare', icon: BookOpen },
+      { path: '/teacher/analytics', label: 'Analytics', icon: LayoutDashboard },
     ]
   },
   student: {
@@ -73,7 +70,7 @@ export default function Layout({ children, role }) {
               <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center">
                 <GraduationCap className="w-5 h-5 text-white" />
               </div>
-              <span className="font-bold text-slate-900">EvalAI</span>
+              <span className="font-bold text-slate-900">AI School</span>
             </div>
           ) : (
             <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center mx-auto">
@@ -169,7 +166,7 @@ export default function Layout({ children, role }) {
                     : role === 'school'
                       ? 'School organization'
                       : role === 'teacher'
-                        ? 'Teaching Portal'
+                        ? `Welcome, ${currentUser?.name?.split(' ')[0] ?? 'Teacher'}`
                         : 'Student Portal'}
               </p>
             </div>
