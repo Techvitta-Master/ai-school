@@ -216,6 +216,31 @@ export const SchoolProvider = ({ children }) => {
     const normalizedEmail = (email || '').trim().toLowerCase();
     const demoUser = DEMO_USERS[normalizedEmail];
 
+    // When Supabase is configured, always try real Auth first.
+    // This ensures RLS works when demo accounts are registered in Supabase Auth.
+    // If real auth fails AND this is a known demo account, fall through to localStorage demo.
+    if (supabase) {
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+
+      if (!signInError && signInData?.user) {
+        clearStoredDemoUser();
+        const nextUser = await resolveCurrentUser(supabase, signInData.user);
+        setCurrentUser(nextUser);
+        return { success: true, role: nextUser?.role ?? null };
+      }
+
+      // Real auth failed — only continue if this is a known demo account
+      if (!demoUser || password !== DEMO_PASSWORD) {
+        setAuthError(signInError?.message || 'Invalid credentials. Please try again.');
+        return { success: false, role: null };
+      }
+      // Demo account not yet registered in Supabase Auth — fall through to localStorage demo below
+    }
+
+    // Fallback: localStorage-only demo (Supabase not configured, or demo account not yet registered)
     if (demoUser && password === DEMO_PASSWORD) {
       setCurrentUser(demoUser);
       storeDemoUser(demoUser);
@@ -227,20 +252,8 @@ export const SchoolProvider = ({ children }) => {
       return { success: false, role: null };
     }
 
-    const { data: signInData, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      setAuthError(error.message);
-      return { success: false, role: null };
-    }
-
-    clearStoredDemoUser();
-    const nextUser = await resolveCurrentUser(supabase, signInData.user);
-    setCurrentUser(nextUser);
-    return { success: true, role: nextUser?.role ?? null };
+    setAuthError('Invalid credentials. Please try again.');
+    return { success: false, role: null };
   };
 
   const logout = async () => {
@@ -651,6 +664,7 @@ export const SchoolProvider = ({ children }) => {
         addScore,
         updateScore,
         uploadTestAnalysis,
+        refreshData,
         saveAnswerSheet,
         getAnswerSheetsByTest,
         saveEvaluation,
