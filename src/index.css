@@ -81,3 +81,36 @@ body {
   background: rgba(15, 23, 42, 0.8);
   backdrop-filter: blur(12px);
 }
+
+/* ─── Print / PDF styles ────────────────────────────────────────────────── */
+@media print {
+  /* Hide everything outside the report card */
+  body > * { display: none !important; }
+
+  /* Re-show only the portal root that react-to-print writes to */
+  body .report-card-print-root,
+  body .report-card-print-root * {
+    display: revert !important;
+  }
+
+  /* Hide print-action buttons inside the report card area */
+  .no-print { display: none !important; }
+
+  /* Force A4, white background, no margins */
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  html, body {
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Ensure the card fills the page */
+  .report-card-print-root {
+    width: 794px !important;
+    overflow: visible !important;
+  }
+}
