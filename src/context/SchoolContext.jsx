@@ -8,33 +8,23 @@ import * as repo from '../lib/schoolRepository';
 const SchoolContext = createContext();
 const DEMO_PASSWORD = '123456';
 const DEMO_USER_STORAGE_KEY = 'demoCurrentUser';
-const DEMO_SCHOOL_ID = 'a0000001-0000-4000-8000-000000000001';
+const DEMO_SCHOOL_ID = 'd0000000-0000-4000-8000-000000000001'; // Madavi Institute (018_madavi_seed.sql)
 const normalizeEmail = (value) => (value || '').trim().toLowerCase();
 const DEMO_USERS = {
   [normalizeEmail(import.meta.env.VITE_DEMO_EMAIL_ADMIN || 'admin@school.com')]: {
-    role: 'admin',
-    id: 'admin',
-    name: 'School Admin',
+    role: 'admin', id: 'admin', name: 'School Admin', isDemo: true,
   },
   [normalizeEmail(import.meta.env.VITE_DEMO_EMAIL_SCHOOL || 'school@school.com')]: {
-    role: 'school',
-    id: 'school-demo',
-    name: 'Riverside School Admin',
-    schoolId: DEMO_SCHOOL_ID,
-    schoolName: 'Riverside International School',
+    role: 'school', id: 'school-demo', name: 'Madavi School Admin',
+    schoolId: DEMO_SCHOOL_ID, schoolName: 'Madavi Institute', isDemo: true,
   },
   [normalizeEmail(import.meta.env.VITE_DEMO_EMAIL_TEACHER || 'priya@school.com')]: {
-    role: 'teacher',
-    id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1',
-    name: 'Priya Sharma',
-    subject: 'Social Science',
-    schoolId: DEMO_SCHOOL_ID,
+    role: 'teacher', id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1',
+    name: 'Priya Sharma', subject: 'Social Science', schoolId: DEMO_SCHOOL_ID, isDemo: true,
   },
   [normalizeEmail(import.meta.env.VITE_DEMO_EMAIL_STUDENT || 'aarav.patel@student.com')]: {
-    role: 'student',
-    id: 'cccccccc-cccc-cccc-cccc-ccccccccccc1',
-    name: 'Aarav Patel',
-    schoolId: DEMO_SCHOOL_ID,
+    role: 'student', id: 'cccccccc-cccc-cccc-cccc-ccccccccccc1',
+    name: 'Aarav Patel', schoolId: DEMO_SCHOOL_ID, isDemo: true,
   },
 };
 
@@ -84,7 +74,7 @@ export const SchoolProvider = ({ children }) => {
   }, [data]);
 
   const refreshData = useCallback(async () => {
-    if (!supabase) return;
+    if (!supabase || currentUser?.isDemo) return;
     const schoolId = currentUser?.role === 'school' ? currentUser.schoolId : null;
     const next = await repo.loadSchoolData(supabase, { schoolId });
     setData(next);
@@ -180,6 +170,13 @@ export const SchoolProvider = ({ children }) => {
         return;
       }
 
+      // Demo users have no real Supabase session — skip all API calls
+      if (currentUser.isDemo) {
+        setData({ ...emptySchoolData });
+        setDataLoading(false);
+        return;
+      }
+
       if (currentUser.role === 'school' && !currentUser.schoolId) {
         setData({ ...emptySchoolData });
         setDataLoading(false);
@@ -257,8 +254,30 @@ export const SchoolProvider = ({ children }) => {
     }
   };
 
+  /**
+   * Pre-flight check: ensure a real Supabase Auth session exists before any mutation.
+   * Returns an error string if no valid JWT is present, otherwise null.
+   * Prevents mysterious 401 responses from PostgREST when the session silently expired
+   * or the user is in demo mode but somehow reached an action path.
+   */
+  const ensureRealSession = async () => {
+    if (!supabase) return 'Supabase is not configured.';
+    if (currentUser?.isDemo) return 'Demo mode — connect a real Supabase account to save data.';
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) return `Session error: ${error.message}`;
+      if (!data?.session?.access_token) {
+        return 'Your session has expired. Please log out and sign in again with a real account.';
+      }
+    } catch (err) {
+      return err?.message || 'Could not verify session.';
+    }
+    return null;
+  };
+
   const addTeacher = async (teacher) => {
-    if (!supabase) return;
+    const sessionErr = await ensureRealSession();
+    if (sessionErr) return { error: sessionErr };
     try {
       const payload = { ...teacher };
       if (currentUser?.role === 'school' && currentUser.schoolId) {
@@ -266,48 +285,70 @@ export const SchoolProvider = ({ children }) => {
       }
       await repo.insertTeacher(supabase, payload);
       await refreshData();
+      return { error: null };
     } catch (err) {
-      setAuthError(err?.message || 'Failed to add teacher.');
+      const msg = err?.message || 'Failed to add teacher.';
+      setAuthError(msg);
+      return { error: msg };
     }
   };
 
   const removeTeacher = async (id) => {
-    if (!supabase) return;
+    const sessionErr = await ensureRealSession();
+    if (sessionErr) return { error: sessionErr };
     try {
       await repo.deleteTeacher(supabase, id);
       await refreshData();
+      return { error: null };
     } catch (err) {
-      setAuthError(err?.message || 'Failed to remove teacher.');
+      const msg = err?.message || 'Failed to remove teacher.';
+      setAuthError(msg);
+      return { error: msg };
     }
   };
 
   const addStudent = async (student) => {
-    if (!supabase) return;
+    const sessionErr = await ensureRealSession();
+    if (sessionErr) return { error: sessionErr };
     try {
-      const sectionIdMap = await repo.fetchSectionIdMap(supabase);
       const payload = { ...student };
       if (currentUser?.role === 'school' && currentUser.schoolId) {
         payload.schoolId = currentUser.schoolId;
       }
+      // Auto-create section if it doesn't exist yet (non-fatal: admin may lack write
+      // access if section already exists or RLS blocks a duplicate upsert).
+      try {
+        await repo.insertSection(supabase, student.class, student.section);
+      } catch (sectionErr) {
+        console.warn('Section upsert skipped (may already exist):', sectionErr?.message);
+      }
+      const sectionIdMap = await repo.fetchSectionIdMap(supabase);
       await repo.insertStudent(supabase, payload, sectionIdMap);
       await refreshData();
+      return { error: null };
     } catch (err) {
-      setAuthError(err?.message || 'Failed to add student.');
+      const msg = err?.message || 'Failed to add student.';
+      setAuthError(msg);
+      return { error: msg };
     }
   };
 
   const removeStudent = async (id) => {
-    if (!supabase) return;
+    const sessionErr = await ensureRealSession();
+    if (sessionErr) return { error: sessionErr };
     try {
       await repo.deleteStudent(supabase, id);
       await refreshData();
+      return { error: null };
     } catch (err) {
-      setAuthError(err?.message || 'Failed to remove student.');
+      const msg = err?.message || 'Failed to remove student.';
+      setAuthError(msg);
+      return { error: msg };
     }
   };
 
   const assignTeacherToSection = async (teacherId, className, section, subject) => {
-    if (!supabase) return;
+    if (!supabase || currentUser?.isDemo) return;
     try {
       const sectionIdMap = await repo.fetchSectionIdMap(supabase);
       await repo.insertTeacherSectionAssignment(supabase, teacherId, className, section, subject, sectionIdMap);
@@ -318,7 +359,7 @@ export const SchoolProvider = ({ children }) => {
   };
 
   const changeTeacherSection = async (oldTeacherId, newTeacherId, className, section, subject) => {
-    if (!supabase) return;
+    if (!supabase || currentUser?.isDemo) return;
     try {
       const sectionIdMap = await repo.fetchSectionIdMap(supabase);
       await repo.updateTeacherSectionAssignmentTeacher(
@@ -337,7 +378,7 @@ export const SchoolProvider = ({ children }) => {
   };
 
   const createTest = async (test) => {
-    if (!supabase) return;
+    if (!supabase || currentUser?.isDemo) return;
     const createdBy =
       currentUser?.role === 'teacher' ? currentUser.id : null;
     try {
@@ -349,7 +390,7 @@ export const SchoolProvider = ({ children }) => {
   };
 
   const removeTest = async (id) => {
-    if (!supabase) return;
+    if (!supabase || currentUser?.isDemo) return;
     try {
       await repo.deleteTest(supabase, id);
       await refreshData();
@@ -361,8 +402,7 @@ export const SchoolProvider = ({ children }) => {
   const addScore = async (studentId, testId, scoreData) => {
     const test = dataRef.current.tests.find((t) => t.id === testId);
     if (!test) return;
-
-    if (!supabase) return;
+    if (!supabase || currentUser?.isDemo) return;
     try {
       await repo.insertScore(supabase, studentId, testId, scoreData);
       await refreshData();
@@ -372,7 +412,7 @@ export const SchoolProvider = ({ children }) => {
   };
 
   const updateScore = async (studentId, scoreId, newScore) => {
-    if (!supabase) return;
+    if (!supabase || currentUser?.isDemo) return;
     try {
       await repo.updateScoreValue(supabase, scoreId, newScore);
       await refreshData();
@@ -382,7 +422,7 @@ export const SchoolProvider = ({ children }) => {
   };
 
   const uploadTestAnalysis = async (testId, payload) => {
-    if (!supabase || currentUser?.role !== 'teacher') return;
+    if (!supabase || currentUser?.isDemo || currentUser?.role !== 'teacher') return;
     const analysis = payload?.analysis ?? payload;
     const bucket = payload?.bucket ?? import.meta.env.VITE_SUPABASE_STORAGE_BUCKET ?? 'test-analyses';
     const storagePath = payload?.storagePath ?? '';
@@ -397,6 +437,71 @@ export const SchoolProvider = ({ children }) => {
       await refreshData();
     } catch (err) {
       setAuthError(err?.message || 'Failed to save test analysis.');
+    }
+  };
+
+  /**
+   * Save an answer sheet record after the file has been uploaded to storage.
+   * Optionally resolves the studentId from rollNo + sectionId.
+   * @param {{ testId: string, studentId?: string, rollNo?: string, sectionId?: string, storagePath: string, bucket?: string }} payload
+   */
+  const saveAnswerSheet = async (payload) => {
+    if (!supabase || currentUser?.isDemo || currentUser?.role !== 'teacher') return null;
+    try {
+      let studentId = payload.studentId || null;
+      if (!studentId && payload.rollNo && payload.sectionId) {
+        studentId = await repo.findStudentIdByRollNo(supabase, payload.rollNo, payload.sectionId);
+      }
+      const id = await repo.insertAnswerSheet(supabase, {
+        testId: payload.testId,
+        studentId,
+        rollNo: payload.rollNo || null,
+        bucket: payload.bucket || 'answer-sheets',
+        storagePath: payload.storagePath || '',
+        teacherId: currentUser.id,
+      });
+      return id;
+    } catch (err) {
+      setAuthError(err?.message || 'Failed to save answer sheet.');
+      return null;
+    }
+  };
+
+  /**
+   * Fetch answer sheets for a test (teacher-side view).
+   * @param {string} testId
+   */
+  const getAnswerSheetsByTest = async (testId) => {
+    if (!supabase || currentUser?.isDemo) return [];
+    try {
+      return await repo.fetchAnswerSheetsByTest(supabase, testId);
+    } catch (err) {
+      setAuthError(err?.message || 'Failed to fetch answer sheets.');
+      return [];
+    }
+  };
+
+  /**
+   * Save a full evaluation (score + topic scores + feedback + grade).
+   * Upserts the scores row and optionally marks the answer sheet as evaluated.
+   * @param {string} studentId
+   * @param {string} testId
+   * @param {{ score: number, topicScores?: object, feedback?: string, grade?: string, answerSheetId?: string }} evalData
+   */
+  const saveEvaluation = async (studentId, testId, evalData) => {
+    if (!supabase || currentUser?.isDemo) return;
+    try {
+      const teacherId = currentUser?.role === 'teacher' ? currentUser.id : null;
+      await repo.saveEvaluation(supabase, studentId, testId, {
+        ...evalData,
+        gradedByTeacherId: teacherId,
+      });
+      if (evalData.answerSheetId) {
+        await repo.updateAnswerSheetStatus(supabase, evalData.answerSheetId, 'evaluated');
+      }
+      await refreshData();
+    } catch (err) {
+      setAuthError(err?.message || 'Failed to save evaluation.');
     }
   };
 
@@ -546,6 +651,9 @@ export const SchoolProvider = ({ children }) => {
         addScore,
         updateScore,
         uploadTestAnalysis,
+        saveAnswerSheet,
+        getAnswerSheetsByTest,
+        saveEvaluation,
         getStudentPerformance,
         getTeacherPerformance,
         getTeacherAssignedStudents,

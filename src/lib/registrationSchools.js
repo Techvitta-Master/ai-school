@@ -1,7 +1,12 @@
 /**
- * Fallback list for registration school dropdown (must match supabase/sql/014_schools_role.sql seed IDs).
+ * School list for registration dropdown.
+ * Madavi Institute is the primary MVP school (018_madavi_seed.sql).
+ * Other schools are retained for multi-tenant Phase 2 expansion.
  */
+export const MADAVI_SCHOOL_ID = 'd0000000-0000-4000-8000-000000000001';
+
 export const REGISTRATION_SCHOOLS = [
+  { id: MADAVI_SCHOOL_ID, name: 'Madavi Institute' },
   { id: 'a0000001-0000-4000-8000-000000000001', name: 'Riverside International School' },
   { id: 'a0000002-0000-4000-8000-000000000002', name: 'Green Valley Academy' },
   { id: 'a0000003-0000-4000-8000-000000000003', name: "St. Mary's Convent School" },
