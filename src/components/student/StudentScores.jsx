@@ -127,7 +127,7 @@ export default function StudentScores() {
           <p className="text-slate-500 mt-1">Your academic results and AI feedback</p>
         </div>
         <Badge className="bg-indigo-100 text-indigo-700 px-3 py-1">
-          Class {student.class}-{student.section} &nbsp;·&nbsp; Roll #{student.rollNo || '—'}
+          Class {student.class} &nbsp;·&nbsp; Roll #{student.rollNo || '—'}
         </Badge>
       </div>
 

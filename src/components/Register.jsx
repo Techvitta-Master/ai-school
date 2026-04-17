@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { GraduationCap } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { useApiLayer } from '../lib/apiConfig';
+import { fetchSchoolsList } from '../lib/schoolApi';
 import { REGISTRATION_SCHOOLS } from '../lib/registrationSchools';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
@@ -23,6 +25,20 @@ export default function Register() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (useApiLayer()) {
+        try {
+          const data = await fetchSchoolsList();
+          if (cancelled) return;
+          if (data?.length) {
+            setSchoolOptions(data.map((r) => ({ id: r.id, name: r.name })));
+          } else {
+            setSchoolOptions(REGISTRATION_SCHOOLS);
+          }
+        } catch {
+          if (!cancelled) setSchoolOptions(REGISTRATION_SCHOOLS);
+        }
+        return;
+      }
       if (!supabase) return;
       const { data, error: fetchErr } = await supabase.from('schools').select('id,name').order('name');
       if (cancelled) return;

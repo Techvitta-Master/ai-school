@@ -1,4 +1,4 @@
-import { emptySchoolData } from './schoolEmptyState';
+import { emptySchoolData } from './schoolEmptyState.js';
 
 function parseClassName(className) {
   const n = parseInt(String(className), 10);
@@ -24,12 +24,14 @@ export async function loadSchoolData(supabase, options = {}) {
   const [
     { data: themeRows, error: e1 },
     { data: chapterRows, error: e2 },
-    { data: sectionRows, error: e3 },
   ] = await Promise.all([
     supabase.from('syllabus_themes').select('id, theme_code, title, domain').order('title'),
     supabase.from('syllabus_chapters').select('id, theme_id, chapter_number, title, topics').order('chapter_number'),
-    supabase.from('sections').select('id, class_name, section_name, strength, class_teacher_id'),
   ]);
+
+  let classQuery = supabase.from('classes').select('id, school_id, class_name');
+  if (schoolId) classQuery = classQuery.eq('school_id', schoolId);
+  const { data: classRows, error: e3 } = await classQuery;
 
   let tq = supabase
     .from('teachers')
@@ -38,7 +40,7 @@ export async function loadSchoolData(supabase, options = {}) {
   const { data: teacherRows, error: e4 } = await tq;
 
   let sq = supabase.from('students').select(
-    'id, name, email, roll_no, section_id, attendance, assigned_teacher_id, parent_name, parent_phone, address, school_id'
+    'id, name, email, roll_no, class_id, attendance, assigned_teacher_id, parent_name, parent_phone, address, school_id'
   );
   if (schoolId) sq = sq.eq('school_id', schoolId);
   const { data: studentRows, error: e6 } = await sq;
@@ -72,18 +74,40 @@ export async function loadSchoolData(supabase, options = {}) {
     }
   }
 
-  const { data: tsaRows, error: e5 } = await supabase
-    .from('teacher_section_assignments')
-    .select('id, teacher_id, section_id, subject');
+  const { data: tcaRows, error: e5 } = await supabase
+    .from('teacher_class_assignments')
+    .select('id, teacher_id, class_id, subject');
 
   const teacherIdSet = new Set((teacherRows || []).map((t) => t.id));
-  const tsaFiltered = schoolId ? (tsaRows || []).filter((a) => teacherIdSet.has(a.teacher_id)) : tsaRows || [];
+  const classIdSet = new Set((classRows || []).map((c) => c.id));
+  const tcaFiltered = (tcaRows || []).filter(
+    (a) => teacherIdSet.has(a.teacher_id) && classIdSet.has(a.class_id)
+  );
 
   const { data: testRows, error: e8 } = await supabase
     .from('tests')
     .select(
       'id, title, theme_id, chapter_id, domain, topics, duration_minutes, total_marks, test_type, created_by_teacher_id, created_at, updated_at'
     );
+
+  let sstaRows = [];
+  let e9 = null;
+  if (!(schoolId && studentIds.length === 0)) {
+    let sstaQuery = supabase
+      .from('student_subject_teacher_assignments')
+      .select('id, student_id, teacher_id, subject, created_at');
+    if (schoolId && studentIds.length > 0) sstaQuery = sstaQuery.in('student_id', studentIds);
+    const { data: sstaData, error: sstaError } = await sstaQuery;
+    if (sstaError) {
+      // Keep app usable even if this optional mapping table is missing on older schemas.
+      e9 = /PGRST205|schema cache|Could not find the table/i.test(String(sstaError.message || sstaError.code || ''))
+        ? null
+        : sstaError;
+      sstaRows = [];
+    } else {
+      sstaRows = sstaData || [];
+    }
+  }
 
   // test_analyses is optional — if the table doesn't exist yet, swallow the error
   const { data: rawAnalysisRows } = await supabase
@@ -92,8 +116,8 @@ export async function loadSchoolData(supabase, options = {}) {
     .then(r => r, () => ({ data: null }));
   const analysisRows = rawAnalysisRows || [];
 
-  // Throw only on hard errors (core tables: themes, chapters, sections, teachers, students, TSA, tests)
-  const err = e1 || e2 || e3 || e4 || e5 || e6 || e7 || e8;
+  // Throw only on hard errors (core tables: themes, chapters, classes, teachers, students, TCA, tests)
+  const err = e1 || e2 || e3 || e4 || e5 || e6 || e7 || e8 || e9;
   if (err) throw err;
 
   const themeById = Object.fromEntries((themeRows || []).map((t) => [t.id, t]));
@@ -118,17 +142,16 @@ export async function loadSchoolData(supabase, options = {}) {
   };
   syllabus.total_chapters = (chapterRows || []).length;
 
-  const sectionById = Object.fromEntries((sectionRows || []).map((s) => [s.id, s]));
+  const classById = Object.fromEntries((classRows || []).map((c) => [c.id, c]));
 
   const teachers = (teacherRows || []).map((t) => {
     const classes = [];
-    for (const a of tsaFiltered || []) {
+    for (const a of tcaFiltered || []) {
       if (a.teacher_id !== t.id) continue;
-      const sec = sectionById[a.section_id];
-      if (!sec) continue;
+      const cl = classById[a.class_id];
+      if (!cl) continue;
       classes.push({
-        class: parseClassName(sec.class_name),
-        section: sec.section_name,
+        class: parseClassName(cl.class_name),
         subject: a.subject,
       });
     }
@@ -146,19 +169,18 @@ export async function loadSchoolData(supabase, options = {}) {
     };
   });
 
-  const sections = (sectionRows || []).map((s) => {
-    const teachersOnSection = (tsaFiltered || [])
-      .filter((a) => a.section_id === s.id)
+  const schoolClasses = (classRows || []).map((c) => {
+    const teachersOnClass = (tcaFiltered || [])
+      .filter((a) => a.class_id === c.id)
       .map((a) => ({
         teacherId: a.teacher_id,
         subject: a.subject,
       }));
     return {
-      class: parseClassName(s.class_name),
-      section: s.section_name,
-      strength: s.strength ?? 0,
-      classTeacher: s.class_teacher_id || '',
-      teachers: teachersOnSection,
+      id: c.id,
+      class: parseClassName(c.class_name),
+      className: c.class_name,
+      teachers: teachersOnClass,
     };
   });
 
@@ -209,13 +231,12 @@ export async function loadSchoolData(supabase, options = {}) {
   }
 
   const students = (studentRows || []).map((st) => {
-    const sec = st.section_id ? sectionById[st.section_id] : null;
+    const cl = st.class_id ? classById[st.class_id] : null;
     return {
       id: st.id,
       name: st.name,
       email: st.email,
-      class: sec ? parseClassName(sec.class_name) : 6,
-      section: sec ? sec.section_name : 'A',
+      class: cl ? parseClassName(cl.class_name) : 6,
       rollNo: st.roll_no != null && st.roll_no !== '' ? parseInt(String(st.roll_no), 10) || 0 : 0,
       assignedTeacher: st.assigned_teacher_id || '',
       parentName: st.parent_name || '',
@@ -231,10 +252,28 @@ export async function loadSchoolData(supabase, options = {}) {
     teachers,
     students,
     tests,
-    sections,
+    schoolClasses,
+    studentSubjectAssignments: sstaRows,
     classes: [6, 7, 8, 9, 10],
     subjects: emptySchoolData.subjects,
   };
+}
+
+export async function insertSchool(supabase, row) {
+  const payload = {
+    name: String(row.name || '').trim(),
+  };
+  if (!payload.name) throw new Error('School name is required.');
+  const { data, error } = await supabase.from('schools').insert(payload).select('id, name').single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteSchool(supabase, schoolId) {
+  const id = String(schoolId || '').trim();
+  if (!id) throw new Error('School id is required.');
+  const { error } = await supabase.from('schools').delete().eq('id', id);
+  if (error) throw error;
 }
 
 async function resolveThemeChapterIds(supabase, themeCode, chapterNumber) {
@@ -262,6 +301,7 @@ export async function insertTeacher(supabase, row) {
   const payload = {
     name: row.name,
     email: row.email,
+    user_id: row.userId ?? row.user_id ?? null,
     phone: row.phone || null,
     subject: row.subject || null,
     experience: row.experience != null && row.experience !== '' ? Number(row.experience) : null,
@@ -279,17 +319,18 @@ export async function deleteTeacher(supabase, id) {
   if (error) throw error;
 }
 
-export async function insertStudent(supabase, row, sectionIdMap) {
+export async function insertStudent(supabase, row, classIdMap) {
   const cls = typeof row.class === 'string' ? parseInt(row.class, 10) : row.class;
-  const key = `${cls}-${row.section}`;
-  const sectionId = sectionIdMap.get(key);
-  if (!sectionId) throw new Error(`Section not found for class ${row.class} section ${row.section}`);
+  const key = String(cls);
+  const classId = classIdMap.get(key);
+  if (!classId) throw new Error(`Class not found for class ${row.class}. Create the class first.`);
 
   const payload = {
     name: row.name,
     email: row.email,
+    user_id: row.userId ?? row.user_id ?? null,
     roll_no: row.rollNo != null ? String(row.rollNo) : null,
-    section_id: sectionId,
+    class_id: classId,
     attendance: row.attendance != null ? row.attendance : null,
     assigned_teacher_id: row.assignedTeacher || null,
     parent_name: row.parentName || null,
@@ -302,80 +343,111 @@ export async function insertStudent(supabase, row, sectionIdMap) {
   return data.id;
 }
 
+export async function updateStudent(supabase, id, row, classIdMap) {
+  const cls = typeof row.class === 'string' ? parseInt(row.class, 10) : row.class;
+  const key = String(cls);
+  const classId = classIdMap.get(key);
+  if (!classId) throw new Error(`Class not found for class ${row.class}. Create the class first.`);
+
+  const payload = {
+    name: row.name,
+    email: row.email,
+    roll_no: row.rollNo != null ? String(row.rollNo) : null,
+    class_id: classId,
+    attendance: row.attendance != null ? row.attendance : null,
+    assigned_teacher_id: row.assignedTeacher || null,
+    parent_name: row.parentName || null,
+    parent_phone: row.parentPhone || null,
+    address: row.address || null,
+  };
+  const { error } = await supabase.from('students').update(payload).eq('id', id);
+  if (error) throw error;
+}
+
 export async function deleteStudent(supabase, id) {
   const { error } = await supabase.from('students').delete().eq('id', id);
   if (error) throw error;
 }
 
-export async function insertSection(supabase, className, sectionName) {
-  const payload = {
-    class_name: String(className),
-    section_name: sectionName,
-  };
-  const { error } = await supabase.from('sections').upsert(payload, {
-    onConflict: 'class_name,section_name',
-    ignoreDuplicates: true,
-  });
+export async function insertClass(supabase, { schoolId, className }) {
+  const cn = String(className ?? '').trim();
+  if (!schoolId || !cn) throw new Error('schoolId and className are required.');
+  const { error } = await supabase.from('classes').upsert(
+    { school_id: schoolId, class_name: cn },
+    { onConflict: 'school_id,class_name' }
+  );
   if (error) throw error;
 }
 
-export async function insertTeacherSectionAssignment(supabase, teacherId, className, sectionName, subject, sectionIdMap) {
+export async function insertTeacherClassAssignment(supabase, teacherId, className, subject, classIdMap) {
   const cn = typeof className === 'string' ? parseInt(className, 10) : className;
-  const key = `${cn}-${sectionName}`;
-  const sectionId = sectionIdMap.get(key);
-  if (!sectionId) throw new Error(`Section not found for ${key}`);
+  const key = String(cn);
+  const classId = classIdMap.get(key);
+  if (!classId) throw new Error(`Class not found for ${key}`);
 
-  const { error } = await supabase.from('teacher_section_assignments').upsert(
+  const { error } = await supabase.from('teacher_class_assignments').upsert(
     {
       teacher_id: teacherId,
-      section_id: sectionId,
+      class_id: classId,
       subject,
     },
     {
-      onConflict: 'teacher_id,section_id,subject',
-      ignoreDuplicates: true,
+      onConflict: 'teacher_id,class_id,subject',
     }
   );
   if (error) throw error;
 }
 
-export async function updateTeacherSectionAssignmentTeacher(
+export async function updateTeacherClassAssignmentTeacher(
   supabase,
   oldTeacherId,
   newTeacherId,
   className,
-  sectionName,
   subject,
-  sectionIdMap
+  classIdMap
 ) {
   const cn = typeof className === 'string' ? parseInt(className, 10) : className;
-  const key = `${cn}-${sectionName}`;
-  const sectionId = sectionIdMap.get(key);
-  if (!sectionId) throw new Error(`Section not found for ${key}`);
+  const key = String(cn);
+  const classId = classIdMap.get(key);
+  if (!classId) throw new Error(`Class not found for ${key}`);
 
   const { data: row, error: e1 } = await supabase
-    .from('teacher_section_assignments')
+    .from('teacher_class_assignments')
     .select('id')
     .eq('teacher_id', oldTeacherId)
-    .eq('section_id', sectionId)
+    .eq('class_id', classId)
     .eq('subject', subject)
     .maybeSingle();
   if (e1) throw e1;
   if (!row) throw new Error('Assignment not found');
 
-  const { error: e2 } = await supabase.from('teacher_section_assignments').update({ teacher_id: newTeacherId }).eq('id', row.id);
+  const { error: e2 } = await supabase.from('teacher_class_assignments').update({ teacher_id: newTeacherId }).eq('id', row.id);
   if (e2) throw e2;
 }
 
 export async function createTestRecord(supabase, testInput, { createdByTeacherId }) {
-  const { themeId, chapterId } = await resolveThemeChapterIds(
-    supabase,
-    testInput.theme,
-    testInput.chapter
-  );
+  const hasTheme =
+    testInput.theme != null && String(testInput.theme).trim() !== '';
+  const hasChapter =
+    testInput.chapter != null && testInput.chapter !== '' && !Number.isNaN(Number(testInput.chapter));
+
+  let themeId = null;
+  let chapterId = null;
+  if (hasTheme && hasChapter) {
+    const resolved = await resolveThemeChapterIds(
+      supabase,
+      testInput.theme,
+      typeof testInput.chapter === 'string' ? parseInt(testInput.chapter, 10) : testInput.chapter
+    );
+    themeId = resolved.themeId;
+    chapterId = resolved.chapterId;
+  }
+
+  const schoolId = testInput.schoolId ?? testInput.school_id ?? null;
 
   const payload = {
     title: testInput.title,
+    school_id: schoolId,
     theme_id: themeId,
     chapter_id: chapterId,
     domain: testInput.domain || null,
@@ -423,6 +495,24 @@ export async function assignStudentsToTeacher(supabase, studentIds, teacherId) {
   }
 }
 
+export async function upsertStudentSubjectTeacherAssignment(
+  supabase,
+  { studentId, teacherId, subject }
+) {
+  if (!studentId || !teacherId || !subject) {
+    throw new Error('studentId, teacherId, and subject are required.');
+  }
+  const { error } = await supabase.from('student_subject_teacher_assignments').upsert(
+    {
+      student_id: studentId,
+      teacher_id: teacherId,
+      subject,
+    },
+    { onConflict: 'student_id,subject' }
+  );
+  if (error) throw error;
+}
+
 export async function insertTestAnalysisRow(supabase, { testId, teacherId, bucket, storagePath, analysis }) {
   const payload = {
     test_id: testId,
@@ -435,13 +525,14 @@ export async function insertTestAnalysisRow(supabase, { testId, teacherId, bucke
   if (error) throw error;
 }
 
-/** Build section key -> id map from loaded sections list + DB ids */
-export async function fetchSectionIdMap(supabase) {
-  const { data: rows, error } = await supabase.from('sections').select('id, class_name, section_name');
+/** Build class label (e.g. "6") -> class row id for a school */
+export async function fetchClassIdMap(supabase, schoolId) {
+  if (!schoolId) throw new Error('schoolId is required.');
+  const { data: rows, error } = await supabase.from('classes').select('id, class_name').eq('school_id', schoolId);
   if (error) throw error;
   const map = new Map();
   for (const r of rows || []) {
-    map.set(`${parseClassName(r.class_name)}-${r.section_name}`, r.id);
+    map.set(String(parseClassName(r.class_name)), r.id);
   }
   return map;
 }
@@ -494,15 +585,15 @@ export async function updateAnswerSheetStatus(supabase, id, status) {
  * Returns the student id or null.
  * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} rollNo
- * @param {string} sectionId
+ * @param {string} classId
  * @returns {Promise<string | null>}
  */
-export async function findStudentIdByRollNo(supabase, rollNo, sectionId) {
+export async function findStudentIdByRollNo(supabase, rollNo, classId) {
   const { data, error } = await supabase
     .from('students')
     .select('id')
     .eq('roll_no', String(rollNo))
-    .eq('section_id', sectionId)
+    .eq('class_id', classId)
     .maybeSingle();
   if (error) throw error;
   return data?.id ?? null;

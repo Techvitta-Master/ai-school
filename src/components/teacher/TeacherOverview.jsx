@@ -23,16 +23,27 @@ const CustomTooltip = ({ active, payload }) => {
 };
 
 export default function TeacherOverview() {
-  const { currentUser, data, getStudentPerformance, getTeacherPerformance } = useSchool();
+  const {
+    currentUser,
+    data,
+    dataLoading,
+    getStudentPerformance,
+    getTeacherPerformance,
+    getTeacherAssignedStudents,
+  } = useSchool();
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-  
-  const assignedStudents = useMemo(() => {
-    return data.students.filter(s => s.assignedTeacher === currentUser.id);
-  }, [data, currentUser.id]);
 
-  const perf = useMemo(() => getTeacherPerformance(currentUser.id), [getTeacherPerformance, currentUser.id]);
+  const assignedStudents = useMemo(() => {
+    if (!currentUser?.id) return [];
+    return getTeacherAssignedStudents(currentUser.id);
+  }, [data, currentUser?.id, getTeacherAssignedStudents]);
+
+  const perf = useMemo(
+    () => (currentUser?.id ? getTeacherPerformance(currentUser.id) : null),
+    [getTeacherPerformance, currentUser?.id]
+  );
 
   const filteredStudents = useMemo(() => {
     return assignedStudents.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -41,7 +52,7 @@ export default function TeacherOverview() {
   const classData = useMemo(() => {
     const next = {};
     for (const s of assignedStudents) {
-      const key = `${s.class}-${s.section}`;
+      const key = `${s.class}`;
       if (!next[key]) next[key] = { scores: [] };
       for (const sc of s.scores) {
         next[key].scores.push(sc.score);
@@ -60,7 +71,7 @@ export default function TeacherOverview() {
     return Object.entries(classData).map(([key, val]) => ({
       name: key,
       score: val.avg,
-      students: assignedStudents.filter(s => `${s.class}-${s.section}` === key).length
+      students: assignedStudents.filter(s => `${s.class}` === key).length
     }));
   }, [classData, assignedStudents]);
 
@@ -102,6 +113,21 @@ export default function TeacherOverview() {
   };
 
   const selectedStudentPerf = selectedStudent ? getStudentPerformance(selectedStudent.id) : null;
+
+  if (dataLoading) {
+    return (
+      <div className="space-y-6 max-w-5xl animate-pulse">
+        <div className="h-8 bg-slate-200 rounded-lg w-64" />
+        <div className="h-4 bg-slate-100 rounded w-96 max-w-full" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-24 bg-white rounded-2xl border border-slate-100 shadow-sm" />
+          ))}
+        </div>
+        <div className="h-64 bg-white rounded-2xl border border-slate-100 shadow-sm" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -163,7 +189,7 @@ export default function TeacherOverview() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-slate-800">Class Performance</h3>
-                <p className="text-sm text-slate-500">Average scores by section</p>
+                <p className="text-sm text-slate-500">Average scores by class</p>
               </div>
             </div>
           </CardHeader>
@@ -242,6 +268,13 @@ export default function TeacherOverview() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
+            {filteredStudents.length === 0 ? (
+              <div className="px-6 py-12 text-center text-sm text-slate-500">
+                {assignedStudents.length === 0
+                  ? 'No students on your roster yet. Ask your school admin to assign you to a class or map students to you.'
+                  : 'No students match your search.'}
+              </div>
+            ) : (
             <table className="w-full">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
@@ -268,7 +301,7 @@ export default function TeacherOverview() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <Badge variant="outline">Class {s.class}-{s.section}</Badge>
+                        <Badge variant="outline">Class {s.class}</Badge>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
@@ -300,6 +333,7 @@ export default function TeacherOverview() {
                 })}
               </tbody>
             </table>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -312,7 +346,7 @@ export default function TeacherOverview() {
                 <Avatar name={selectedStudent?.name} className="w-12 h-12" />
                 <div>
                   <h2 className="text-xl font-semibold">{selectedStudent?.name}</h2>
-                  <p className="text-sm text-slate-500">Class {selectedStudent?.class}-{selectedStudent?.section} • {selectedStudent?.email}</p>
+                  <p className="text-sm text-slate-500">Class {selectedStudent?.class} • {selectedStudent?.email}</p>
                 </div>
               </div>
             </DialogTitle>

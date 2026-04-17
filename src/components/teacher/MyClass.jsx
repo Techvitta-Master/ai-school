@@ -42,7 +42,7 @@ export default function MyClass() {
   const { currentUser, data } = useSchool();
   const navigate = useNavigate();
 
-  // Find the teacher record (has .classes array with { class, section, subject })
+  // Teacher record includes .classes: { class, subject } per assignment (no sections)
   const teacher = useMemo(
     () => data.teachers.find((t) => t.id === currentUser?.id),
     [data.teachers, currentUser?.id]
@@ -53,11 +53,10 @@ export default function MyClass() {
   const [selectedIdx, setSelectedIdx] = useState(0);
   const selected = assignments[selectedIdx] ?? null;
 
-  // Students in the selected class section
   const students = useMemo(() => {
     if (!selected) return [];
     return data.students
-      .filter((s) => s.class === selected.class && s.section === selected.section)
+      .filter((s) => s.class === selected.class)
       .sort((a, b) => (a.rollNo || 0) - (b.rollNo || 0));
   }, [data.students, selected]);
 
@@ -104,7 +103,7 @@ export default function MyClass() {
         </div>
         <h2 className="text-lg font-semibold text-gray-900 mb-2">No class assigned yet</h2>
         <p className="text-sm text-gray-500">
-          Contact the school admin to get a class section assigned to you.
+          Contact the school admin to assign you to a class (by subject).
         </p>
       </div>
     );
@@ -119,15 +118,14 @@ export default function MyClass() {
           {currentUser?.name ?? 'My Class'}
         </h2>
         <p className="text-sm text-gray-500 mt-0.5">
-          {teacher?.subject || currentUser?.subject || 'Teacher'} · {assignments.length} section{assignments.length !== 1 ? 's' : ''} assigned
+          {teacher?.subject || currentUser?.subject || 'Teacher'} · {assignments.length} class assignment{assignments.length !== 1 ? 's' : ''}
         </p>
       </div>
 
-      {/* Section pills */}
       <div className="flex flex-wrap gap-2">
         {assignments.map((cls, i) => (
           <button
-            key={`${cls.class}-${cls.section}-${cls.subject}`}
+            key={`${cls.class}-${cls.subject}-${i}`}
             type="button"
             onClick={() => setSelectedIdx(i)}
             className={`px-4 py-2 rounded-full text-sm font-medium transition-all border ${
@@ -136,7 +134,7 @@ export default function MyClass() {
                 : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-400 hover:text-indigo-600'
             }`}
           >
-            Class {cls.class}-{cls.section}
+            Class {cls.class}
             {cls.subject && <span className="ml-1.5 opacity-80">· {cls.subject}</span>}
           </button>
         ))}
@@ -150,7 +148,7 @@ export default function MyClass() {
               icon={Users}
               label="Students"
               value={stats.total}
-              sub={`Class ${selected.class}-${selected.section}`}
+              sub={`Class ${selected.class}`}
             />
             <StatCard
               icon={TrendingUp}
@@ -172,7 +170,7 @@ export default function MyClass() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-800">
-                Students — Class {selected.class}-{selected.section}
+                Students — Class {selected.class}
               </h3>
               <span className="text-xs text-gray-400">{students.length} enrolled</span>
             </div>
@@ -180,7 +178,7 @@ export default function MyClass() {
             {students.length === 0 ? (
               <div className="px-5 py-10 text-center">
                 <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-sm text-gray-400">No students enrolled in this section yet.</p>
+                <p className="text-sm text-gray-400">No students in this class yet.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -238,7 +236,7 @@ export default function MyClass() {
                         <td className="px-5 py-3 text-right">
                           <button
                             type="button"
-                            onClick={() => navigate(`/teacher/upload?rollNo=${s.rollNo}`)}
+                            onClick={() => navigate(`/teacher/upload?studentId=${s.id}`)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-medium transition-colors"
                           >
                             <Upload className="w-3 h-3" />

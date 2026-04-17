@@ -119,7 +119,7 @@ function ReportCardBody({ student, test, evaluation, generatedAt }) {
           <div>
             <p className="text-lg font-bold text-slate-900">{student?.name ?? '—'}</p>
             <p className="text-sm text-slate-500">
-              Class {student?.class}-{student?.section} &nbsp;·&nbsp; Roll No. {student?.rollNo ?? '—'}
+              Class {student?.class} &nbsp;·&nbsp; Roll No. {student?.rollNo ?? '—'}
             </p>
           </div>
         </div>
@@ -336,7 +336,7 @@ export default function ReportCard({ student, test, evaluation }) {
           <p className="text-sm font-semibold text-slate-700">
             {test?.title ?? 'Test'} — {student?.name ?? 'Student'}
           </p>
-          <p className="text-xs text-slate-400">Roll #{student?.rollNo ?? '—'} · Class {student?.class}-{student?.section}</p>
+          <p className="text-xs text-slate-400">Roll #{student?.rollNo ?? '—'} · Class {student?.class}</p>
         </div>
         <button
           onClick={handlePrint}

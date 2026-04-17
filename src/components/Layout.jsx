@@ -2,8 +2,8 @@ import { useState, createElement } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSchool } from '../context/SchoolContext';
 import {
-  GraduationCap, LayoutDashboard, Users, GraduationCap as StudentIcon,
-  BookOpen, FileText, BarChart3, LogOut, ChevronLeft, Bell, Search, Menu, X,
+  GraduationCap, LayoutDashboard, Users,
+  BookOpen, FileText, BarChart3, LogOut, ChevronLeft, Bell, Search, Menu, X, Building2, Network, Link2,
 } from 'lucide-react';
 import { Avatar } from './ui/avatar';
 import { Button } from './ui/button';
@@ -11,7 +11,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { ScrollArea } from './ui/scroll-area';
 import { Badge } from './ui/badge';
 
-const ADMIN_ANALYTICS   = import.meta.env.VITE_ENABLE_ADMIN_ANALYTICS   === 'true';
 const ADVANCED_TEACHER  = import.meta.env.VITE_ENABLE_ADVANCED_TEACHER_TOOLS === 'true';
 
 const buildRoleConfig = () => ({
@@ -19,25 +18,25 @@ const buildRoleConfig = () => ({
     title: 'Dashboard',
     items: [
       { path: '/admin', label: 'Overview', icon: LayoutDashboard },
-      { path: '/admin/teachers', label: 'Teachers', icon: Users },
-      { path: '/admin/students', label: 'Students', icon: StudentIcon },
-      { path: '/admin/sections', label: 'Classes', icon: BookOpen },
-      ...(ADMIN_ANALYTICS ? [
-        { path: '/admin/tests', label: 'Tests', icon: FileText },
-        { path: '/admin/performance', label: 'Analytics', icon: BarChart3 },
-      ] : []),
+      { path: '/admin/schools', label: 'Schools', icon: Building2 },
     ],
   },
   school: {
-    title: 'School Admin',
+    title: 'School',
     items: [
       { path: '/school', label: 'Dashboard', icon: LayoutDashboard },
+      { path: '/school/classes', label: 'Classes', icon: BookOpen },
+      { path: '/school/teachers', label: 'Teachers', icon: Users },
+      { path: '/school/students', label: 'Students', icon: GraduationCap },
+      { path: '/school/assign-teachers', label: 'Teachers ↔ classes', icon: Network },
+      { path: '/school/student-subjects', label: 'Student ↔ subjects', icon: Link2 },
     ],
   },
   teacher: {
     title: 'Teaching Portal',
     items: [
       { path: '/teacher', label: 'My Class', icon: Users },
+      { path: '/teacher/tests', label: 'Add test', icon: FileText },
       { path: '/teacher/upload', label: 'Upload & Analyze', icon: BarChart3 },
       { path: '/teacher/analytics', label: 'Analytics', icon: LayoutDashboard },
       ...(ADVANCED_TEACHER ? [
@@ -79,6 +78,11 @@ export default function Layout({ children, role }) {
   const handleNavClick = (path) => {
     navigate(path);
     setMobileOpen(false);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
   };
 
   return (
@@ -123,7 +127,10 @@ export default function Layout({ children, role }) {
         <ScrollArea className="flex-1 px-3 py-4">
           <nav className="space-y-1">
             {config.items.map(({ path, label, icon: Icon }) => {
-              const active = location.pathname === path;
+              const active =
+                path === '/school' || path === '/admin'
+                  ? location.pathname === path || location.pathname === `${path}/`
+                  : location.pathname === path || location.pathname.startsWith(`${path}/`);
               return (
                 <button
                   type="button"
@@ -178,7 +185,7 @@ export default function Layout({ children, role }) {
                 Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={logout} className="text-red-600 focus:text-red-600">
+              <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600">
                 <LogOut className="w-4 h-4 mr-2" />
                 Logout
               </DropdownMenuItem>

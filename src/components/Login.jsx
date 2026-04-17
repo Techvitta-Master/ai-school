@@ -23,15 +23,32 @@ export default function Login() {
     teacher: import.meta.env.VITE_DEMO_EMAIL_TEACHER || 'priya@school.com',
     student: import.meta.env.VITE_DEMO_EMAIL_STUDENT || 'aarav.patel@student.com',
   };
-  const demoPassword = '123456';
+  const demoPassword = import.meta.env.VITE_DEMO_PASSWORD || '123456';
+
+  const inferRoleFromEmail = (addr) => {
+    const n = String(addr || '').trim().toLowerCase();
+    if (n === String(demoEmails.admin).toLowerCase()) return 'admin';
+    if (n === String(demoEmails.school).toLowerCase()) return 'school';
+    if (n === String(demoEmails.teacher).toLowerCase()) return 'teacher';
+    if (n === String(demoEmails.student).toLowerCase()) return 'student';
+    return null;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
     const result = await login(email, password);
-    if (result?.success && result.role) navigate(`/${result.role}`);
-    else setError('Invalid credentials. Please try again.');
+    if (!result?.success) {
+      setError(result?.error || 'Invalid credentials. Please try again.');
+      return;
+    }
+    const pathRole = (result.role || inferRoleFromEmail(email) || '').toLowerCase();
+    if (!pathRole) {
+      setError('Signed in but your role could not be determined.');
+      return;
+    }
+    navigate(`/${pathRole}`, { replace: true });
   };
 
   const fillDemo = (demoRole) => {

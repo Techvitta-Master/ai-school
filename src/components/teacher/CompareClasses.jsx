@@ -10,7 +10,7 @@ export default function CompareClasses() {
 
   const classData = {};
   data.students.forEach(s => {
-    const key = `${s.class}-${s.section}`;
+    const key = `${s.class}`;
     if (!classData[key]) {
       classData[key] = {
         name: key,
@@ -77,9 +77,10 @@ export default function CompareClasses() {
     };
   });
 
-  const isMyClass = (className) => {
-    return data.students.some(s => 
-      `${s.class}-${s.section}` === className && s.assignedTeacher === currentUser.id
+  const isMyClass = (label) => {
+    const raw = String(label).replace(/^Class\s+/, '');
+    return data.students.some(
+      (s) => String(s.class) === raw && s.assignedTeacher === currentUser.id
     );
   };
 
@@ -95,13 +96,13 @@ export default function CompareClasses() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Compare Classes</h2>
-          <p className="text-sm text-gray-500">View performance comparison across sections</p>
+          <p className="text-sm text-gray-500">View performance comparison across classes</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {[
-          { label: 'My Classes', value: comparisonData.filter(c => isMyClass(c.name.replace('Class ', ''))).length, icon: BookOpen, color: 'emerald' },
+          { label: 'My Classes', value: comparisonData.filter((c) => isMyClass(c.name)).length, icon: BookOpen, color: 'emerald' },
           { label: 'Total Classes', value: comparisonData.length, icon: Users, color: 'indigo' },
           { label: 'My Avg Score', value: `${Math.round(myPerf?.avgPerformance || 0)}%`, icon: TrendingUp, color: 'amber' },
           { label: 'Rank', value: '#1', icon: Award, color: 'purple' },

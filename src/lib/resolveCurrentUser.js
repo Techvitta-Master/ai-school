@@ -4,7 +4,17 @@
 export async function resolveCurrentUser(supabase, user) {
   if (!user) return null;
 
+  const env =
+    typeof import.meta !== 'undefined' && import.meta.env
+      ? import.meta.env
+      : {};
   const email = user.email;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const demoAdminEmail = String(env.VITE_DEMO_EMAIL_ADMIN || 'admin@school.com').trim().toLowerCase();
+  const demoSchoolEmail = String(env.VITE_DEMO_EMAIL_SCHOOL || 'school@school.com').trim().toLowerCase();
+  const demoTeacherEmail = String(env.VITE_DEMO_EMAIL_TEACHER || 'priya@school.com').trim().toLowerCase();
+  const demoStudentEmail = String(env.VITE_DEMO_EMAIL_STUDENT || 'aarav.patel@student.com').trim().toLowerCase();
+  const demoSchoolId = 'd0000000-0000-4000-8000-000000000001';
   const name =
     user.user_metadata?.full_name ||
     user.user_metadata?.name ||
@@ -12,8 +22,10 @@ export async function resolveCurrentUser(supabase, user) {
 
   const metaRole = user.user_metadata?.role ? String(user.user_metadata.role) : null;
 
+  const authUserId = user.id;
+
   if (metaRole === 'admin') {
-    return { role: 'admin', id: 'admin', name: name || 'School Admin' };
+    return { role: 'admin', id: 'admin', name: name || 'School Admin', authUserId };
   }
 
   const [{ data: roleRows }, { data: profileRow }, { data: teacherByUid }, { data: studentByUid }] =
@@ -48,26 +60,32 @@ export async function resolveCurrentUser(supabase, user) {
     roleFromTable ||
     profileRole ||
     metaRole ||
+    (normalizedEmail === demoSchoolEmail ? 'school' : null) ||
+    (normalizedEmail === demoAdminEmail ? 'admin' : null) ||
+    (normalizedEmail === demoTeacherEmail ? 'teacher' : null) ||
+    (normalizedEmail === demoStudentEmail ? 'student' : null) ||
     (teacher ? 'teacher' : student ? 'student' : 'admin');
 
   if (role === 'school') {
     return {
       role: 'school',
       id: user.id,
+      authUserId,
       name: name || 'School',
-      schoolId: profileRow?.school_id ?? null,
-      schoolName,
+      schoolId: profileRow?.school_id ?? (normalizedEmail === demoSchoolEmail ? demoSchoolId : null),
+      schoolName: schoolName || (normalizedEmail === demoSchoolEmail ? 'Madavi Institute' : ''),
     };
   }
 
   if (role === 'admin') {
-    return { role: 'admin', id: 'admin', name: name || 'School Admin' };
+    return { role: 'admin', id: 'admin', name: name || 'School Admin', authUserId };
   }
 
   if (role === 'teacher') {
     return {
       role: 'teacher',
       id: teacher?.id ?? user.id,
+      authUserId,
       name: teacher?.name ?? name ?? 'Teacher',
       subject: teacher?.subject || '',
       schoolId: profileRow?.school_id ?? null,
@@ -78,10 +96,11 @@ export async function resolveCurrentUser(supabase, user) {
     return {
       role: 'student',
       id: student?.id ?? user.id,
+      authUserId,
       name: student?.name ?? name ?? 'Student',
       schoolId: profileRow?.school_id ?? null,
     };
   }
 
-  return { role: 'admin', id: 'admin', name: name || 'School Admin' };
+  return { role: 'admin', id: 'admin', name: name || 'School Admin', authUserId };
 }

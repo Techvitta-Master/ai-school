@@ -139,7 +139,7 @@ export default function Performance() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">{s.name}</p>
-                      <p className="text-xs text-gray-500">Class {s.class}-{s.section}</p>
+                      <p className="text-xs text-gray-500">Class {s.class}</p>
                     </div>
                   </div>
                   <span className="font-semibold text-red-600">{Math.round(s.perf.overallScore)}%</span>
@@ -163,7 +163,7 @@ export default function Performance() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">{s.name}</p>
-                      <p className="text-xs text-gray-500">Class {s.class}-{s.section}</p>
+                      <p className="text-xs text-gray-500">Class {s.class}</p>
                     </div>
                   </div>
                   <span className="font-semibold text-green-600">{Math.round(s.perf.overallScore)}%</span>
@@ -188,7 +188,7 @@ export default function Performance() {
             >
               <option value="">Select a student</option>
               {data.students.map(s => (
-                <option key={s.id} value={s.id}>{s.name} (Class {s.class}-{s.section})</option>
+                <option key={s.id} value={s.id}>{s.name} (Class {s.class})</option>
               ))}
             </select>
           </div>

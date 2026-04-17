@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useSchool } from '../../context/SchoolContext';
 import { UserPlus, Trash2, Mail, Hash, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 
-const EMPTY = { name: '', email: '', class: '6', section: 'A', rollNo: '' };
+const MADAVI_SCHOOL_ID = 'd0000000-0000-4000-8000-000000000001';
+const EMPTY = { name: '', email: '', class: '6', rollNo: '', schoolId: MADAVI_SCHOOL_ID };
 
 export default function ManageStudents() {
   const { data, addStudent, removeStudent, getStudentPerformance } = useSchool();
@@ -192,7 +193,7 @@ export default function ManageStudents() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-700">Class {student.class}-{student.section}</td>
+                      <td className="px-6 py-4 text-sm text-gray-700">Class {student.class}</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-1 text-sm text-gray-600">
                           <Hash className="w-3.5 h-3.5" />

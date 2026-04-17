@@ -46,7 +46,6 @@ const baseMockData = {
       name: 'Student One',
       email: 'student@x.com',
       class: 6,
-      section: 'A',
       assignedTeacher: 't1',
       rollNo: 1,
       scores: [
@@ -69,7 +68,7 @@ const baseMockData = {
       createdAt: '2020-01-01T00:00:00.000Z',
     },
   ],
-  sections: [{ class: 6, section: 'A', strength: 50, classTeacher: 't1', teachers: [] }],
+  schoolClasses: [{ id: 'cl1', class: 6, className: '6', teachers: [] }],
   syllabus: {
     themes: [
       {

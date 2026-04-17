@@ -4,6 +4,8 @@
 > Built with React + Supabase + Vercel.
 > Driven by Claude Sonnet 4.6 via Cursor agents.
 
+**Simplified MVP requirements & role checklist:** see [`MVP_PLAN.md`](./MVP_PLAN.md).
+
 ---
 
 ## 0. Locked-in decisions
@@ -59,6 +61,23 @@ Student ─────────────> sees report card + download PDF
 - **Student Scores** with AI-feedback section
 - `evaluationService.js` with `evaluateAnswerSheet()` + `createAndEvaluate()` dummy implementation
 - Sentry error boundary + Vitest + Playwright scaffolding
+
+### ✅ Current requirements checklist (2026-04-17)
+- [x] Node API layer in place for frontend-to-backend calls
+- [x] Login is strict API-first (failed login does not enter app)
+- [x] Demo credentials aligned and seeded for 4 roles (admin/school/teacher/student)
+- [x] Old data wiped; DB reset to minimal state with Madavi baseline
+- [x] Admin surface reduced to dashboard + schools management
+- [x] Admin dashboard copy updated to client-facing language
+- [x] Meaningful cards added: Total Schools, Latest Activity, School Status
+- [x] Admin: delete school (UI + `DELETE /api/schools/:id`, admin-only)
+- [x] Proxy removed from Vite path; direct API base URL used
+- [x] RLS disabled on public tables (access control shifted to Node layer)
+- [ ] Node API authorization hardening per endpoint (school/teacher/student routes)
+- [ ] **MVP_PLAN.md — School role:** classes, students, teachers, mappings
+- [ ] **MVP_PLAN.md — Teacher:** Upload & Analyze end-to-end
+- [ ] **MVP_PLAN.md — Student:** scores + report card
+- [ ] End-to-end test for full happy path
 
 ### ❌ To build for MVP
 | # | Gap | Phase |
@@ -213,7 +232,7 @@ You do **not** need custom hooks or new skills for this MVP.
 - [ ] School admin can: add a class, add a teacher, add a student (with roll no), assign teacher→class
 - [ ] Teacher sees only their mapped students, can upload answer sheet, sees detailed AI evaluation instantly
 - [ ] Student sees their report card with per-question breakdown, can download as PDF
-- [ ] RLS prevents Teacher A from seeing Teacher B's students
+- [ ] Node API authorization prevents Teacher A from seeing Teacher B's students
 - [ ] Deployed to `ai-school-main.vercel.app` (or your equivalent) and fully functional
 
 ---

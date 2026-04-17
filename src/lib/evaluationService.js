@@ -8,8 +8,10 @@
  *   • `scores`      — score, grade, feedback, topic_scores (backward-compat)
  *   • `evaluations` — full details jsonb (requires migration 019)
  *   • `answer_sheets.status` — set to 'evaluated'
+ *
+ * DB helpers take a SupabaseClient as the first argument so the same logic runs
+ * in the browser (direct PostgREST) or on the Node API (JWT-scoped client).
  */
-import { supabase } from './supabaseClient';
 
 // ─── Templates ────────────────────────────────────────────────────────────────
 
@@ -194,11 +196,13 @@ export function buildEvaluation(topics = [], totalMarks = 100) {
  *   • evaluations  — marks, grade, feedback, full details jsonb
  *   • answer_sheets — status = 'evaluated'
  *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string | null} answerSheetId
  * @param {{ studentId?: string, testId?: string, topics?: string[], totalMarks?: number }} params
  * @returns Full RCA evaluation object.
  */
 export async function evaluateAnswerSheet(
+  supabase,
   answerSheetId,
   { studentId, testId, topics = [], totalMarks = 100 } = {}
 ) {
@@ -247,17 +251,21 @@ export async function evaluateAnswerSheet(
 /**
  * Creates an answer_sheet record then immediately evaluates it.
  *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {{ testId, studentId, teacherId, storagePath?, test?, student? }} params
  * @returns {{ answerSheetId, marks, grade, feedback, perQuestionScores, topicRCA, improvementPlan, topicScores }}
  */
-export async function createAndEvaluate({
-  testId,
-  studentId,
-  teacherId,
-  storagePath = '',
-  test = null,
-  student = null,  // reserved for future use (e.g. personalised feedback)
-}) {
+export async function createAndEvaluate(
+  supabase,
+  {
+    testId,
+    studentId,
+    teacherId,
+    storagePath = '',
+    test = null,
+    student = null, // reserved for future use (e.g. personalised feedback)
+  }
+) {
   if (!supabase) throw new Error('Supabase is not configured.');
 
   const topics = Array.isArray(test?.topics) ? test.topics : [];
@@ -278,7 +286,7 @@ export async function createAndEvaluate({
 
   if (sheetErr) throw sheetErr;
 
-  const evaluation = await evaluateAnswerSheet(sheet.id, { studentId, testId, topics, totalMarks });
+  const evaluation = await evaluateAnswerSheet(supabase, sheet.id, { studentId, testId, topics, totalMarks });
   return { answerSheetId: sheet.id, ...evaluation };
 }
 
@@ -287,10 +295,11 @@ export async function createAndEvaluate({
  * Joins answer_sheets → tests and evaluations so the caller gets everything
  * needed to render a report card in a single call.
  *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
  * @param {string} studentId
  * @returns {Array}
  */
-export async function getStudentEvaluations(studentId) {
+export async function getStudentEvaluations(supabase, studentId) {
   if (!supabase) return [];
 
   const { data, error } = await supabase

@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useSchool } from '../../context/SchoolContext';
 import { FileText, Plus, Users, BarChart, ChevronDown, ChevronUp, X, CheckCircle, AlertTriangle, Clock, BookOpen, ArrowRight } from 'lucide-react';
 
 export default function ConductTest() {
-  const { data, createTest, addScore, getStudentPerformance, currentUser } = useSchool();
+  const { data, createTest, addScore, getStudentPerformance, currentUser, getTeacherAssignedStudents } = useSchool();
   const [showCreate, setShowCreate] = useState(false);
   const [expandedStudent, setExpandedStudent] = useState(null);
   const [selectedTest, setSelectedTest] = useState(null);
@@ -20,7 +20,10 @@ export default function ConductTest() {
     totalMarks: 100
   });
 
-  const assignedStudents = data.students.filter(s => s.assignedTeacher === currentUser.id);
+  const assignedStudents = useMemo(
+    () => (currentUser?.id ? getTeacherAssignedStudents(currentUser.id) : []),
+    [currentUser?.id, getTeacherAssignedStudents]
+  );
 
   const handleCreateTest = (e) => {
     e.preventDefault();
@@ -149,7 +152,7 @@ export default function ConductTest() {
                     </div>
                     <div className="text-left">
                       <p className="font-semibold text-slate-800">{student.name}</p>
-                      <p className="text-sm text-slate-500">Class {student.class}-{student.section} • Roll: {student.rollNo}</p>
+                      <p className="text-sm text-slate-500">Class {student.class} • Roll: {student.rollNo}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">

@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSchool } from '../../context/SchoolContext';
 import { createAndEvaluate } from '../../lib/evaluationService';
+import { useApiLayer } from '../../lib/apiConfig';
+import { uploadAndEvaluateApi } from '../../lib/schoolApi';
 import {
-  Upload, FileText, Sparkles, CheckCircle, AlertCircle,
-  Hash, User, Loader2, RotateCcw, TrendingUp, TrendingDown, ClipboardList,
+  Upload, Sparkles, CheckCircle, AlertCircle,
+  User, Loader2, RotateCcw, TrendingUp, TrendingDown, ClipboardList,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 
@@ -20,9 +22,33 @@ export default function UploadAnalyze() {
   const [result, setResult]             = useState(null);
   const [uploadError, setUploadError]   = useState('');
   const [selectedTestId, setSelectedTestId] = useState('');
-  const [rollNo, setRollNo]             = useState(() => searchParams.get('rollNo') ?? '');
+  const [selectedClass, setSelectedClass] = useState('');
+  const [selectedStudentId, setSelectedStudentId] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const fileInputRef = useRef(null);
+
+  const classOptions = useMemo(() => {
+    const rows = data?.schoolClasses ?? [];
+    if (rows.length) {
+      return [...rows].sort((a, b) => a.class - b.class).map((c) => c.class);
+    }
+    const fromStudents = [...new Set((data?.students ?? []).map((s) => s.class))].filter((n) => n != null).sort((a, b) => a - b);
+    if (fromStudents.length) return fromStudents;
+    return [6, 7, 8, 9, 10];
+  }, [data?.schoolClasses, data?.students]);
+
+  useEffect(() => {
+    if (!classOptions.length || selectedClass) return;
+    setSelectedClass(String(classOptions[0]));
+  }, [classOptions, selectedClass]);
+
+  const studentsInClass = useMemo(
+    () =>
+      (data?.students ?? [])
+        .filter((s) => String(s.class) === String(selectedClass))
+        .sort((a, b) => (a.rollNo || 0) - (b.rollNo || 0)),
+    [data?.students, selectedClass]
+  );
 
   // Pre-fill test selector
   useEffect(() => {
@@ -31,10 +57,19 @@ export default function UploadAnalyze() {
     }
   }, [data?.tests, selectedTestId]);
 
-  // When arriving via "Upload Sheet" shortcut, scroll to the file dropzone
+  // Deep link: ?studentId= from My Class
   useEffect(() => {
-    const prefill = searchParams.get('rollNo');
-    if (prefill && dropzoneRef.current) {
+    const sid = searchParams.get('studentId');
+    if (!sid || !data?.students?.length) return;
+    const st = data.students.find((s) => s.id === sid);
+    if (st) {
+      setSelectedClass(String(st.class));
+      setSelectedStudentId(st.id);
+    }
+  }, [searchParams, data?.students]);
+
+  useEffect(() => {
+    if (searchParams.get('studentId') && dropzoneRef.current) {
       setTimeout(() => dropzoneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -58,7 +93,7 @@ export default function UploadAnalyze() {
 
   const handleReset = () => {
     setResult(null);
-    setRollNo('');
+    setSelectedStudentId('');
     setSelectedFile(null);
     setUploadError('');
   };
@@ -66,13 +101,13 @@ export default function UploadAnalyze() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedFile)       { setUploadError('Please select an answer sheet file.'); return; }
-    if (!rollNo.trim())      { setUploadError('Please enter the student roll number.'); return; }
+    if (!selectedClass)      { setUploadError('Please select a class.'); return; }
+    if (!selectedStudentId)  { setUploadError('Please select a student.'); return; }
     if (!selectedTestId)     { setUploadError('Please select a test.'); return; }
 
-    // Hard-fail if the roll number is unknown — must be enrolled first
-    const student = data.students?.find(s => String(s.rollNo) === String(rollNo.trim()));
+    const student = data.students?.find((s) => s.id === selectedStudentId);
     if (!student) {
-      setUploadError(`No student found with roll number ${rollNo.trim()}. Please enrol them before uploading.`);
+      setUploadError('Selected student not found. Refresh and try again.');
       return;
     }
 
@@ -82,31 +117,58 @@ export default function UploadAnalyze() {
     try {
       const test = data.tests?.find(t => t.id === selectedTestId);
 
-      // Upload file to Storage (best-effort; evaluation proceeds even if bucket is absent)
-      let storagePath = '';
-      if (supabase) {
-        const safeName = selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-        storagePath = `sheets/${currentUser?.id || 'anon'}/roll${rollNo.trim()}-${Date.now()}-${safeName}`;
-
-        const { error: uploadErr } = await supabase.storage
-          .from('answer-sheets')
-          .upload(storagePath, selectedFile, { contentType: selectedFile.type || undefined, upsert: true });
-
-        if (uploadErr) {
-          console.warn('[upload] Storage skipped:', uploadErr.message);
-          storagePath = '';
+      let evaluation;
+      if (useApiLayer()) {
+        if (!supabase) {
+          setUploadError('Supabase Auth is not configured.');
+          setUploading(false);
+          return;
         }
-      }
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (!token) {
+          setUploadError('Your session has expired. Please sign in again.');
+          setUploading(false);
+          return;
+        }
+        const fd = new FormData();
+        fd.append('file', selectedFile);
+        fd.append('testId', selectedTestId);
+        fd.append('studentId', student.id);
+        fd.append('rollNo', String(student.rollNo ?? ''));
+        if (test) fd.append('testJson', JSON.stringify(test));
+        evaluation = await uploadAndEvaluateApi(token, fd);
+      } else {
+        // Upload file to Storage (best-effort; evaluation proceeds even if bucket is absent)
+        let storagePath = '';
+        if (supabase) {
+          const safeName = selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          storagePath = `sheets/${currentUser?.id || 'anon'}/roll${student.rollNo ?? 'x'}-${Date.now()}-${safeName}`;
 
-      // Evaluate via the real (dummy) RCA service
-      const evaluation = await createAndEvaluate({
-        testId: selectedTestId,
-        studentId: student.id,
-        teacherId: currentUser?.id,
-        storagePath,
-        test,
-        student,
-      });
+          const { error: uploadErr } = await supabase.storage
+            .from('answer-sheets')
+            .upload(storagePath, selectedFile, { contentType: selectedFile.type || undefined, upsert: true });
+
+          if (uploadErr) {
+            console.warn('[upload] Storage skipped:', uploadErr.message);
+            storagePath = '';
+          }
+        }
+
+        if (!supabase) {
+          setUploadError('Supabase is not configured.');
+          setUploading(false);
+          return;
+        }
+        evaluation = await createAndEvaluate(supabase, {
+          testId: selectedTestId,
+          studentId: student.id,
+          teacherId: currentUser?.id,
+          storagePath,
+          test,
+          student,
+        });
+      }
 
       // Refresh school-wide data so student dashboard updates immediately
       await refreshData();
@@ -114,7 +176,7 @@ export default function UploadAnalyze() {
       setResult({
         fileName:      selectedFile.name,
         studentName:   student.name,
-        studentRollNo: rollNo.trim(),
+        studentRollNo: String(student.rollNo ?? ''),
         testTitle:     test?.title || 'Test',
         marks:         evaluation.marks,
         grade:         evaluation.grade,
@@ -131,8 +193,6 @@ export default function UploadAnalyze() {
 
     setUploading(false);
   };
-
-  const matchedStudent = data.students?.find(s => String(s.rollNo) === String(rollNo));
 
   // ─── Result view ────────────────────────────────────────────────────────────
   if (result) {
@@ -293,55 +353,75 @@ export default function UploadAnalyze() {
       <div>
         <h2 className="text-xl font-semibold text-gray-900">Upload &amp; Evaluate Answer Sheet</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Enter the student's roll number, select the test, upload the answer sheet, then click Evaluate.
+          Choose class → student → test, then upload the file and evaluate. Add new tests from the sidebar <strong className="text-slate-700">Add test</strong>.
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Step 1 — identify */}
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Step 1 — Identify</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Step 1 — Class, student &amp; test</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Student Roll Number <span className="text-red-400">*</span>
+                Class <span className="text-red-400">*</span>
               </label>
-              <div className="relative">
-                <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type="number"
-                  value={rollNo}
-                  onChange={e => setRollNo(e.target.value)}
-                  placeholder="e.g. 101"
-                  min="1"
-                  className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                />
-              </div>
-              {rollNo && (
-                <p className={`mt-1.5 text-xs flex items-center gap-1 ${matchedStudent ? 'text-emerald-600' : 'text-amber-500'}`}>
+              <select
+                value={selectedClass}
+                onChange={(e) => {
+                  setSelectedClass(e.target.value);
+                  setSelectedStudentId('');
+                }}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+              >
+                {classOptions.map((c) => (
+                  <option key={c} value={String(c)}>Class {c}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                Student <span className="text-red-400">*</span>
+              </label>
+              <select
+                value={selectedStudentId}
+                onChange={(e) => setSelectedStudentId(e.target.value)}
+                disabled={!studentsInClass.length}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:opacity-60"
+              >
+                <option value="">{studentsInClass.length ? 'Select student' : 'No students in this class'}</option>
+                {studentsInClass.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} · roll {s.rollNo ?? '—'}
+                  </option>
+                ))}
+              </select>
+              {selectedStudentId && (
+                <p className="mt-1.5 text-xs text-emerald-600 flex items-center gap-1">
                   <User className="w-3 h-3" />
-                  {matchedStudent
-                    ? `${matchedStudent.name} · Class ${matchedStudent.class}-${matchedStudent.section}`
-                    : 'Roll number not found — student must be enrolled first'}
+                  {data.students?.find((x) => x.id === selectedStudentId)?.email || ''}
                 </p>
               )}
             </div>
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                Attach to Test <span className="text-red-400">*</span>
+                Attach to test <span className="text-red-400">*</span>
               </label>
               <select
                 value={selectedTestId}
-                onChange={e => setSelectedTestId(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none bg-white"
+                onChange={(e) => setSelectedTestId(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
               >
                 {data?.tests?.length ? (
-                  data.tests.map(t => (
-                    <option key={t.id} value={t.id}>{t.title}</option>
+                  data.tests.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}{t.chapter != null ? ` · Ch ${t.chapter}` : ''}
+                    </option>
                   ))
                 ) : (
-                  <option value="">No tests available — create a test first</option>
+                  <option value="">No tests — add one under Add test</option>
                 )}
               </select>
             </div>
@@ -415,7 +495,7 @@ export default function UploadAnalyze() {
 
         {!data?.tests?.length && (
           <p className="text-center text-sm text-amber-600">
-            No tests found. Ask the admin to create tests before uploading answer sheets.
+            Create a test first: sidebar <strong>Add test</strong>.
           </p>
         )}
       </form>
