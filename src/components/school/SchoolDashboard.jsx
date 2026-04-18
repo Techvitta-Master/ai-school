@@ -22,7 +22,7 @@ function sortSchoolClasses(list) {
 const teacherSchema = z.object({
   name: z.string().min(2).max(60),
   email: z.string().email(),
-  subject: z.string().min(1),
+  subjectId: z.string().min(1),
 });
 
 const studentSchema = z.object({
@@ -34,6 +34,10 @@ const studentSchema = z.object({
 
 const classSchema = z.object({
   class: z.coerce.number().int().min(1).max(12),
+});
+
+const subjectSchema = z.object({
+  name: z.string().min(2).max(60),
 });
 
 const EMPTY_ASSIGN = { teacherId: '', class: '', subject: '' };
@@ -160,9 +164,11 @@ function SchoolClassesPage() {
   } = useForm({ resolver: zodResolver(classSchema), defaultValues: { class: 6 } });
 
   const onSubmit = async (values) => {
-    await addClass(String(values.class));
-    reset();
-    setShowForm(false);
+    const r = await addClass(String(values.class));
+    if (!r?.error) {
+      reset();
+      setShowForm(false);
+    }
   };
 
   return (
@@ -215,6 +221,13 @@ function SchoolClassesPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {sortSchoolClasses(schoolClasses).map((row) => {
             const n = data.students.filter((s) => s.class === row.class).length;
+            const linkedRows = (row.teachers || []).map((t) => {
+              const teacher = data.teachers.find((x) => x.id === t.teacherId);
+              return {
+                subject: t.subject || teacher?.subject || 'General',
+                teacherName: teacher?.name || 'Unassigned',
+              };
+            });
             return (
               <div key={row.id} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
                 <div className="flex items-center gap-3 mb-3">
@@ -226,9 +239,22 @@ function SchoolClassesPage() {
                     <p className="text-xs text-slate-400">{n} students</p>
                   </div>
                 </div>
-                <p className="text-xs text-slate-500">
-                  Teachers for this class: {row.teachers?.length ?? 0} (by subject)
-                </p>
+                {linkedRows.length === 0 ? (
+                  <p className="text-xs text-slate-500">No subject-teacher links yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-slate-500">Linked subjects and teachers:</p>
+                    {linkedRows.map((link, idx) => (
+                      <div
+                        key={`${row.id}-${idx}-${link.subject}`}
+                        className="flex items-center justify-between text-xs bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5"
+                      >
+                        <span className="font-medium text-slate-700">{link.subject}</span>
+                        <span className="text-slate-500">{link.teacherName}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -286,15 +312,15 @@ function SchoolTeachersPage() {
               {errors.email && <p className="mt-1 text-xs text-red-500">{errors.email.message}</p>}
             </div>
             <div>
-              <FormSelect label="Primary subject" required {...register('subject')}>
+              <FormSelect label="Primary subject" required {...register('subjectId')}>
                 <option value="">Select subject</option>
-                {data.subjects.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
+                {(data.subjectRows || []).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
                   </option>
                 ))}
               </FormSelect>
-              {errors.subject && <p className="mt-1 text-xs text-red-500">{errors.subject.message}</p>}
+              {errors.subjectId && <p className="mt-1 text-xs text-red-500">{errors.subjectId.message}</p>}
             </div>
             <div className="md:col-span-3 flex gap-3">
               <button type="submit" disabled={savingT} className="px-6 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-medium disabled:opacity-60">
@@ -332,6 +358,76 @@ function SchoolTeachersPage() {
               </div>
             </div>
           ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SchoolSubjectsPage() {
+  const { data, addSubject } = useSchool();
+  const [showForm, setShowForm] = useState(false);
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm({ resolver: zodResolver(subjectSchema) });
+
+  const onSubmit = async (values) => {
+    const r = await addSubject(values.name);
+    if (!r?.error) {
+      reset();
+      setShowForm(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Subjects</h1>
+          <p className="text-sm text-slate-500">{data.subjects.length} subjects</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowForm(!showForm)}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 text-sm font-medium"
+        >
+          <Plus className="w-4 h-4" />
+          Add subject
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <h3 className="font-semibold text-slate-800 mb-4">New subject</h3>
+          <form onSubmit={handleSubmit(onSubmit)} className="flex flex-wrap items-end gap-4">
+            <div className="min-w-[240px]">
+              <FormInput label="Subject name" required type="text" {...register('name')} />
+              {errors.name && <p className="mt-1 text-xs text-red-500">{errors.name.message}</p>}
+            </div>
+            <button type="submit" disabled={isSubmitting} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium">
+              {isSubmitting ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" onClick={() => { setShowForm(false); reset(); }} className="px-5 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm">
+              Cancel
+            </button>
+          </form>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        {data.subjects.length === 0 ? (
+          <div className="text-center py-16 text-slate-400 text-sm">No subjects yet.</div>
+        ) : (
+          <div className="p-5 flex flex-wrap gap-2">
+            {data.subjects.map((subject) => (
+              <span key={subject} className="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-xs font-medium">
+                {subject}
+              </span>
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -570,10 +666,12 @@ function SchoolAssignTeachersPage() {
   const handleAssign = async (e) => {
     e.preventDefault();
     setAssignSaving(true);
-    await assignTeacherToClass(assignForm.teacherId, assignForm.class, assignForm.subject);
-    setAssignSuccess(true);
+    const r = await assignTeacherToClass(assignForm.teacherId, assignForm.class, assignForm.subject);
+    setAssignSuccess(!r?.error);
     setAssignSaving(false);
-    setTimeout(() => setAssignSuccess(false), 3000);
+    if (!r?.error) {
+      setTimeout(() => setAssignSuccess(false), 3000);
+    }
   };
 
   return (
@@ -790,6 +888,7 @@ export default function SchoolDashboard() {
     <Routes>
       <Route index element={<SchoolOverview />} />
       <Route path="classes" element={<SchoolClassesPage />} />
+      <Route path="subjects" element={<SchoolSubjectsPage />} />
       <Route path="teachers" element={<SchoolTeachersPage />} />
       <Route path="students" element={<SchoolStudentsPage />} />
       <Route path="assign-teachers" element={<SchoolAssignTeachersPage />} />

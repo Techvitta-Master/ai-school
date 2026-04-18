@@ -88,6 +88,10 @@ export async function insertClassApi(accessToken, schoolId, className) {
   return apiFetch('/classes', { accessToken, method: 'POST', body: { schoolId, className } });
 }
 
+export async function insertSubjectApi(accessToken, schoolId, name) {
+  return apiFetch('/subjects', { accessToken, method: 'POST', body: { schoolId, name } });
+}
+
 export async function fetchClassIdMapApi(accessToken, schoolId) {
   const obj = await apiFetch(`/class-id-map?schoolId=${encodeURIComponent(schoolId)}`, { accessToken });
   return new Map(Object.entries(obj || {}));

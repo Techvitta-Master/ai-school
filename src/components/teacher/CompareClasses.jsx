@@ -4,9 +4,10 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { TrendingUp, Users, BookOpen, Award } from 'lucide-react';
 
 export default function CompareClasses() {
-  const { data, currentUser, getTeacherPerformance } = useSchool();
+  const { data, currentUser, getTeacherPerformance, getTeacherRelevantTestIds } = useSchool();
 
   const myPerf = getTeacherPerformance(currentUser.id);
+  const teacherTestIds = getTeacherRelevantTestIds(currentUser.id);
 
   const classData = {};
   data.students.forEach(s => {
@@ -20,7 +21,9 @@ export default function CompareClasses() {
       };
     }
     classData[key].students.push(s);
-    const studentPerf = data.tests.reduce((acc, test) => {
+    const studentPerf = data.tests
+      .filter((t) => teacherTestIds.has(t.id))
+      .reduce((acc, test) => {
       const score = s.scores.find(sc => sc.testId === test.id);
       if (score) {
         acc.push(score.score);

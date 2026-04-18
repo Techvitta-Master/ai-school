@@ -14,6 +14,7 @@ export const emptySchoolData = {
   tests: [],
   schoolClasses: [],
   studentSubjectAssignments: [],
+  subjectRows: [],
   classes: [6, 7, 8, 9, 10],
   subjects: [
     'Social Science',

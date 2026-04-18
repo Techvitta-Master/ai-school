@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useSchool } from '../context/SchoolContext';
 import {
   GraduationCap, LayoutDashboard, Users,
-  BookOpen, FileText, BarChart3, LogOut, ChevronLeft, Bell, Search, Menu, X, Building2, Network, Link2,
+  BookOpen, FileText, BarChart3, LogOut, ChevronLeft, Bell, Search, Menu, X, Building2, Network,
 } from 'lucide-react';
 import { Avatar } from './ui/avatar';
 import { Button } from './ui/button';
@@ -26,10 +26,10 @@ const buildRoleConfig = () => ({
     items: [
       { path: '/school', label: 'Dashboard', icon: LayoutDashboard },
       { path: '/school/classes', label: 'Classes', icon: BookOpen },
+      { path: '/school/subjects', label: 'Subjects', icon: FileText },
       { path: '/school/teachers', label: 'Teachers', icon: Users },
       { path: '/school/students', label: 'Students', icon: GraduationCap },
       { path: '/school/assign-teachers', label: 'Teachers ↔ classes', icon: Network },
-      { path: '/school/student-subjects', label: 'Student ↔ subjects', icon: Link2 },
     ],
   },
   teacher: {

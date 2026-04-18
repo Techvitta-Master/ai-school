@@ -14,7 +14,15 @@ const MAX_BYTES   = parseInt(import.meta.env.VITE_UPLOAD_MAX_BYTES || '10485760'
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
 
 export default function UploadAnalyze() {
-  const { data, currentUser, refreshData } = useSchool();
+  const {
+    data,
+    currentUser,
+    refreshData,
+    getTeacherAssignedStudents,
+    getTeacherRelevantTestIds,
+    getCurrentTeacherId,
+  } = useSchool();
+  const teacherId = getCurrentTeacherId();
   const [searchParams] = useSearchParams();
   const dropzoneRef = useRef(null);
 
@@ -27,35 +35,52 @@ export default function UploadAnalyze() {
   const [selectedFile, setSelectedFile] = useState(null);
   const fileInputRef = useRef(null);
 
+  const assignedStudents = useMemo(
+    () => (teacherId ? getTeacherAssignedStudents(teacherId) : []),
+    [teacherId, getTeacherAssignedStudents]
+  );
+
+  const teacherTestIds = useMemo(
+    () => (teacherId ? getTeacherRelevantTestIds(teacherId) : new Set()),
+    [teacherId, getTeacherRelevantTestIds]
+  );
+
+  const allTests = useMemo(
+    () =>
+      [...(data?.tests ?? [])].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))),
+    [data?.tests]
+  );
+
   const classOptions = useMemo(() => {
-    const rows = data?.schoolClasses ?? [];
-    if (rows.length) {
-      return [...rows].sort((a, b) => a.class - b.class).map((c) => c.class);
-    }
-    const fromStudents = [...new Set((data?.students ?? []).map((s) => s.class))].filter((n) => n != null).sort((a, b) => a - b);
+    const fromAssigned = [...new Set(assignedStudents.map((s) => s.class))]
+      .filter((n) => n != null)
+      .sort((a, b) => a - b);
+    if (fromAssigned.length) return fromAssigned;
+    const fromStudents = [...new Set((data?.students ?? []).map((s) => s.class))]
+      .filter((n) => n != null)
+      .sort((a, b) => a - b);
     if (fromStudents.length) return fromStudents;
     return [6, 7, 8, 9, 10];
-  }, [data?.schoolClasses, data?.students]);
+  }, [assignedStudents, data?.students]);
 
   useEffect(() => {
     if (!classOptions.length || selectedClass) return;
     setSelectedClass(String(classOptions[0]));
   }, [classOptions, selectedClass]);
 
-  const studentsInClass = useMemo(
-    () =>
-      (data?.students ?? [])
-        .filter((s) => String(s.class) === String(selectedClass))
-        .sort((a, b) => (a.rollNo || 0) - (b.rollNo || 0)),
-    [data?.students, selectedClass]
-  );
+  const studentsInClass = useMemo(() => {
+    const source = assignedStudents.length ? assignedStudents : (data?.students ?? []);
+    return source
+      .filter((s) => String(s.class) === String(selectedClass))
+      .sort((a, b) => (a.rollNo || 0) - (b.rollNo || 0));
+  }, [assignedStudents, data?.students, selectedClass]);
 
   // Pre-fill test selector
   useEffect(() => {
-    if (!selectedTestId && data?.tests?.length) {
-      setSelectedTestId(data.tests[0].id);
+    if (!selectedTestId && allTests.length) {
+      setSelectedTestId(allTests[0].id);
     }
-  }, [data?.tests, selectedTestId]);
+  }, [allTests, selectedTestId]);
 
   // Deep link: ?studentId= from My Class
   useEffect(() => {
@@ -115,7 +140,7 @@ export default function UploadAnalyze() {
     setUploadError('');
 
     try {
-      const test = data.tests?.find(t => t.id === selectedTestId);
+      const test = allTests.find(t => t.id === selectedTestId);
 
       let evaluation;
       if (useApiLayer()) {
@@ -143,7 +168,7 @@ export default function UploadAnalyze() {
         let storagePath = '';
         if (supabase) {
           const safeName = selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-          storagePath = `sheets/${currentUser?.id || 'anon'}/roll${student.rollNo ?? 'x'}-${Date.now()}-${safeName}`;
+          storagePath = `sheets/${teacherId || currentUser?.id || 'anon'}/roll${student.rollNo ?? 'x'}-${Date.now()}-${safeName}`;
 
           const { error: uploadErr } = await supabase.storage
             .from('answer-sheets')
@@ -163,7 +188,7 @@ export default function UploadAnalyze() {
         evaluation = await createAndEvaluate(supabase, {
           testId: selectedTestId,
           studentId: student.id,
-          teacherId: currentUser?.id,
+          teacherId: teacherId || currentUser?.id,
           storagePath,
           test,
           student,
@@ -414,10 +439,11 @@ export default function UploadAnalyze() {
                 onChange={(e) => setSelectedTestId(e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
               >
-                {data?.tests?.length ? (
-                  data.tests.map((t) => (
+                {allTests.length ? (
+                  allTests.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.title}{t.chapter != null ? ` · Ch ${t.chapter}` : ''}
+                      {t.title}
+                      {teacherTestIds.has(t.id) ? ' · My subject' : ' · All tests'}
                     </option>
                   ))
                 ) : (
@@ -477,7 +503,7 @@ export default function UploadAnalyze() {
 
         <button
           type="submit"
-          disabled={uploading || !data?.tests?.length}
+          disabled={uploading || !allTests.length}
           className="w-full py-3.5 bg-indigo-600 text-white rounded-2xl font-semibold text-sm hover:bg-indigo-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
         >
           {uploading ? (
@@ -493,9 +519,9 @@ export default function UploadAnalyze() {
           )}
         </button>
 
-        {!data?.tests?.length && (
+        {!allTests.length && (
           <p className="text-center text-sm text-amber-600">
-            Create a test first: sidebar <strong>Add test</strong>.
+            No tests found. Create one from <strong>Add test</strong>.
           </p>
         )}
       </form>

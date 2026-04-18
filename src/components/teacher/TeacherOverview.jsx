@@ -27,22 +27,31 @@ export default function TeacherOverview() {
     currentUser,
     data,
     dataLoading,
-    getStudentPerformance,
+    getStudentPerformanceForTeacher,
     getTeacherPerformance,
     getTeacherAssignedStudents,
+    getTeacherRelevantTestIds,
+    getCurrentTeacherId,
   } = useSchool();
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showDetailsModal, setShowDetailsModal] = useState(false);
 
+  const teacherId = getCurrentTeacherId();
+
   const assignedStudents = useMemo(() => {
-    if (!currentUser?.id) return [];
-    return getTeacherAssignedStudents(currentUser.id);
-  }, [data, currentUser?.id, getTeacherAssignedStudents]);
+    if (!teacherId) return [];
+    return getTeacherAssignedStudents(teacherId);
+  }, [data, teacherId, getTeacherAssignedStudents]);
 
   const perf = useMemo(
-    () => (currentUser?.id ? getTeacherPerformance(currentUser.id) : null),
-    [getTeacherPerformance, currentUser?.id]
+    () => (teacherId ? getTeacherPerformance(teacherId) : null),
+    [getTeacherPerformance, teacherId]
+  );
+
+  const teacherTestIds = useMemo(
+    () => (teacherId ? getTeacherRelevantTestIds(teacherId) : new Set()),
+    [teacherId, getTeacherRelevantTestIds]
   );
 
   const filteredStudents = useMemo(() => {
@@ -54,7 +63,7 @@ export default function TeacherOverview() {
     for (const s of assignedStudents) {
       const key = `${s.class}`;
       if (!next[key]) next[key] = { scores: [] };
-      for (const sc of s.scores) {
+      for (const sc of (s.scores || []).filter((x) => teacherTestIds.has(x.testId))) {
         next[key].scores.push(sc.score);
       }
     }
@@ -65,7 +74,7 @@ export default function TeacherOverview() {
     }
 
     return next;
-  }, [assignedStudents]);
+  }, [assignedStudents, teacherTestIds]);
 
   const chartData = useMemo(() => {
     return Object.entries(classData).map(([key, val]) => ({
@@ -78,7 +87,7 @@ export default function TeacherOverview() {
   const topWeakTopics = useMemo(() => {
     const weakTopicsMap = {};
     for (const s of assignedStudents) {
-      const studentPerf = getStudentPerformance(s.id);
+      const studentPerf = getStudentPerformanceForTeacher(s.id, teacherId);
       for (const [topic, score] of studentPerf?.weakTopics || []) {
         if (!weakTopicsMap[topic]) weakTopicsMap[topic] = { count: 0, totalScore: 0 };
         weakTopicsMap[topic].count++;
@@ -89,7 +98,7 @@ export default function TeacherOverview() {
     return Object.entries(weakTopicsMap)
       .sort((a, b) => b[1].count - a[1].count)
       .slice(0, 5);
-  }, [assignedStudents, getStudentPerformance]);
+  }, [assignedStudents, getStudentPerformanceForTeacher, teacherId]);
 
   const performanceData = useMemo(() => {
     return chartData.length > 0 ? chartData : [{ name: 'No Data', score: 0 }];
@@ -112,7 +121,9 @@ export default function TeacherOverview() {
     setShowDetailsModal(true);
   };
 
-  const selectedStudentPerf = selectedStudent ? getStudentPerformance(selectedStudent.id) : null;
+  const selectedStudentPerf = selectedStudent
+    ? getStudentPerformanceForTeacher(selectedStudent.id, teacherId)
+    : null;
 
   if (dataLoading) {
     return (
@@ -288,7 +299,8 @@ export default function TeacherOverview() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredStudents.map((s) => {
-                  const studentPerf = getStudentPerformance(s.id);
+                  const studentPerf = getStudentPerformanceForTeacher(s.id, teacherId);
+                  const scopedScores = (s.scores || []).filter((x) => teacherTestIds.has(x.testId));
                   return (
                     <tr key={s.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-3">
@@ -311,7 +323,7 @@ export default function TeacherOverview() {
                           <Progress value={studentPerf?.overallScore || 0} className="h-1.5 w-16" />
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{s.scores?.length || 0}</td>
+                      <td className="px-4 py-3 text-slate-600">{scopedScores.length}</td>
                       <td className="px-4 py-3">
                         <Badge className={getScoreBg(studentPerf?.overallScore || 0)}>
                           {studentPerf?.overallScore >= 70 ? 'Good' : studentPerf?.overallScore >= 50 ? 'Average' : 'Needs Help'}
@@ -363,12 +375,18 @@ export default function TeacherOverview() {
                 </div>
                 <div className="bg-slate-50 rounded-xl p-4 text-center">
                   <p className="text-sm text-slate-500">Tests Taken</p>
-                  <p className="text-2xl font-bold text-slate-900">{selectedStudent?.scores.length}</p>
+                  <p className="text-2xl font-bold text-slate-900">
+                    {(selectedStudent?.scores || []).filter((x) => teacherTestIds.has(x.testId)).length}
+                  </p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-4 text-center">
                   <p className="text-sm text-slate-500">Best Score</p>
                   <p className="text-2xl font-bold text-emerald-600">
-                    {Math.max(...(selectedStudent?.scores?.map(s => s.score) || [0]))}%
+                    {Math.max(
+                      ...((selectedStudent?.scores || [])
+                        .filter((x) => teacherTestIds.has(x.testId))
+                        .map((s) => s.score) || [0])
+                    )}%
                   </p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-4 text-center">
@@ -434,7 +452,11 @@ export default function TeacherOverview() {
                 <h4 className="text-sm font-medium text-slate-700 mb-3">Score Trend</h4>
                 <div className="h-48">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={selectedStudent?.scores.slice(0, 10).reverse().map((s, i, arr) => ({
+                    <LineChart data={(selectedStudent?.scores || [])
+                      .filter((x) => teacherTestIds.has(x.testId))
+                      .slice(0, 10)
+                      .reverse()
+                      .map((s, i, arr) => ({
                       test: `Test ${i + 1}`,
                       score: s.score,
                       avg: Math.round(arr.reduce((a, b) => a + b.score, 0) / arr.length)

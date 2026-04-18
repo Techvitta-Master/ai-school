@@ -204,7 +204,7 @@ export function buildEvaluation(topics = [], totalMarks = 100) {
 export async function evaluateAnswerSheet(
   supabase,
   answerSheetId,
-  { studentId, testId, topics = [], totalMarks = 100 } = {}
+  { studentId, testId, teacherId = null, topics = [], totalMarks = 100 } = {}
 ) {
   if (!supabase) throw new Error('Supabase is not configured.');
 
@@ -212,34 +212,63 @@ export async function evaluateAnswerSheet(
   const { marks, grade, feedback, topicScores, perQuestionScores, topicRCA, improvementPlan } = evaluation;
 
   if (studentId && testId) {
-    const { error } = await supabase.from('scores').upsert(
+    const { error } = await supabase.from('scores').insert(
       {
         student_id: studentId,
         test_id: testId,
+        answer_sheet_id: answerSheetId || null,
         score: marks,
         topic_scores: topicScores,
         feedback,
         grade,
-      },
-      { onConflict: 'student_id,test_id' }
+        graded_by_teacher_id: teacherId,
+      }
     );
     if (error) throw error;
   }
 
   if (answerSheetId) {
-    // Write full details — non-fatal if migration 019 is not yet applied
-    const { error: evalErr } = await supabase.from('evaluations').upsert(
-      {
-        answer_sheet_id: answerSheetId,
-        marks,
-        grade,
-        feedback,
-        details: { perQuestionScores, topicRCA, improvementPlan },
-      },
-      { onConflict: 'answer_sheet_id' }
-    );
+    // Write full details. Some environments may miss a unique constraint on
+    // evaluations.answer_sheet_id, which breaks PostgREST upsert(onConflict).
+    // Fallback to update/insert path so evaluation still succeeds.
+    const evalPayload = {
+      answer_sheet_id: answerSheetId,
+      marks,
+      grade,
+      feedback,
+      details: { perQuestionScores, topicRCA, improvementPlan },
+    };
+    let { error: evalErr } = await supabase
+      .from('evaluations')
+      .upsert(evalPayload, { onConflict: 'answer_sheet_id' });
+
+    if (
+      evalErr &&
+      /no unique or exclusion constraint matching the ON CONFLICT specification/i.test(
+        String(evalErr.message || '')
+      )
+    ) {
+      const { data: existingEval, error: lookupErr } = await supabase
+        .from('evaluations')
+        .select('id')
+        .eq('answer_sheet_id', answerSheetId)
+        .maybeSingle();
+      if (!lookupErr && existingEval?.id) {
+        const { error: updateErr } = await supabase
+          .from('evaluations')
+          .update(evalPayload)
+          .eq('id', existingEval.id);
+        evalErr = updateErr || null;
+      } else if (!lookupErr) {
+        const { error: insertErr } = await supabase.from('evaluations').insert(evalPayload);
+        evalErr = insertErr || null;
+      } else {
+        evalErr = lookupErr;
+      }
+    }
+
     if (evalErr) {
-      console.warn('[eval] evaluations write failed (019 migration pending?):', evalErr.message);
+      console.warn('[eval] evaluations write failed:', evalErr.message);
     }
 
     await supabase.from('answer_sheets').update({ status: 'evaluated' }).eq('id', answerSheetId);
@@ -263,7 +292,6 @@ export async function createAndEvaluate(
     teacherId,
     storagePath = '',
     test = null,
-    student = null, // reserved for future use (e.g. personalised feedback)
   }
 ) {
   if (!supabase) throw new Error('Supabase is not configured.');
@@ -286,7 +314,13 @@ export async function createAndEvaluate(
 
   if (sheetErr) throw sheetErr;
 
-  const evaluation = await evaluateAnswerSheet(supabase, sheet.id, { studentId, testId, topics, totalMarks });
+  const evaluation = await evaluateAnswerSheet(supabase, sheet.id, {
+    studentId,
+    testId,
+    teacherId,
+    topics,
+    totalMarks,
+  });
   return { answerSheetId: sheet.id, ...evaluation };
 }
 

@@ -464,6 +464,8 @@ export async function createTestRecord(supabase, testInput, { createdByTeacherId
 }
 
 export async function deleteTest(supabase, id) {
+  const { error: resultsErr } = await supabase.from('results').delete().eq('test_id', id);
+  if (resultsErr) throw resultsErr;
   const { error } = await supabase.from('tests').delete().eq('id', id);
   if (error) throw error;
 }
@@ -476,10 +478,9 @@ export async function insertScore(supabase, studentId, testId, scoreData) {
     topic_scores: scoreData.topicScores || {},
     feedback: scoreData.feedback || null,
     grade: scoreData.grade || null,
+    graded_by_teacher_id: scoreData.gradedByTeacherId || null,
   };
-  const { error } = await supabase.from('scores').upsert(payload, {
-    onConflict: 'student_id,test_id',
-  });
+  const { error } = await supabase.from('scores').insert(payload);
   if (error) throw error;
 }
 
@@ -653,9 +654,7 @@ export async function saveEvaluation(supabase, studentId, testId, evalData) {
   if (evalData.gradedByTeacherId) {
     payload.graded_by_teacher_id = evalData.gradedByTeacherId;
   }
-  const { error } = await supabase.from('scores').upsert(payload, {
-    onConflict: 'student_id,test_id',
-  });
+  const { error } = await supabase.from('scores').insert(payload);
   if (error) throw error;
 }
 

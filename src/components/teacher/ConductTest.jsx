@@ -3,7 +3,17 @@ import { useSchool } from '../../context/SchoolContext';
 import { FileText, Plus, Users, BarChart, ChevronDown, ChevronUp, X, CheckCircle, AlertTriangle, Clock, BookOpen, ArrowRight } from 'lucide-react';
 
 export default function ConductTest() {
-  const { data, createTest, addScore, getStudentPerformance, currentUser, getTeacherAssignedStudents } = useSchool();
+  const {
+    data,
+    createTest,
+    addScore,
+    getStudentPerformanceForTeacher,
+    currentUser,
+    getTeacherAssignedStudents,
+    getTeacherRelevantTestIds,
+    getCurrentTeacherId,
+  } = useSchool();
+  const teacherId = getCurrentTeacherId();
   const [showCreate, setShowCreate] = useState(false);
   const [expandedStudent, setExpandedStudent] = useState(null);
   const [selectedTest, setSelectedTest] = useState(null);
@@ -21,8 +31,12 @@ export default function ConductTest() {
   });
 
   const assignedStudents = useMemo(
-    () => (currentUser?.id ? getTeacherAssignedStudents(currentUser.id) : []),
-    [currentUser?.id, getTeacherAssignedStudents]
+    () => (teacherId ? getTeacherAssignedStudents(teacherId) : []),
+    [teacherId, getTeacherAssignedStudents]
+  );
+  const teacherTestIds = useMemo(
+    () => (teacherId ? getTeacherRelevantTestIds(teacherId) : new Set()),
+    [teacherId, getTeacherRelevantTestIds]
   );
 
   const handleCreateTest = (e) => {
@@ -56,7 +70,7 @@ export default function ConductTest() {
 
   const getTestByStudent = (studentId) => {
     const student = data.students.find(s => s.id === studentId);
-    return student?.scores || [];
+    return (student?.scores || []).filter((sc) => teacherTestIds.has(sc.testId));
   };
 
   return (
@@ -135,7 +149,7 @@ export default function ConductTest() {
         
         <div className="divide-y divide-slate-200/30">
           {assignedStudents.map((student) => {
-            const perf = getStudentPerformance(student.id);
+            const perf = getStudentPerformanceForTeacher(student.id, teacherId);
             const isExpanded = expandedStudent?.id === student.id;
             const studentTests = getTestByStudent(student.id);
             
@@ -233,7 +247,9 @@ export default function ConductTest() {
                               className="w-full px-3 py-2.5 bg-white/80 border border-slate-200/50 rounded-xl"
                             >
                               <option value="">Choose a test</option>
-                              {data.tests.map(t => (<option key={t.id} value={t.id}>{t.title} (Ch {t.chapter})</option>))}
+                              {data.tests
+                                .filter((t) => teacherTestIds.has(t.id))
+                                .map(t => (<option key={t.id} value={t.id}>{t.title} (Ch {t.chapter})</option>))}
                             </select>
                           </div>
                           <div>

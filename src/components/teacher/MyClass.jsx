@@ -39,19 +39,21 @@ function StatCard({ icon: Icon, label, value, sub, color = 'text-indigo-600' }) 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function MyClass() {
-  const { currentUser, data } = useSchool();
+  const { currentUser, data, getTeacherRelevantTestIds, getCurrentTeacher, getCurrentTeacherId } = useSchool();
   const navigate = useNavigate();
 
   // Teacher record includes .classes: { class, subject } per assignment (no sections)
-  const teacher = useMemo(
-    () => data.teachers.find((t) => t.id === currentUser?.id),
-    [data.teachers, currentUser?.id]
-  );
+  const teacher = useMemo(() => getCurrentTeacher(), [getCurrentTeacher]);
+  const teacherId = getCurrentTeacherId();
 
   const assignments = teacher?.classes ?? [];
 
   const [selectedIdx, setSelectedIdx] = useState(0);
   const selected = assignments[selectedIdx] ?? null;
+  const teacherTestIds = useMemo(
+    () => (teacherId ? getTeacherRelevantTestIds(teacherId) : new Set()),
+    [teacherId, getTeacherRelevantTestIds]
+  );
 
   const students = useMemo(() => {
     if (!selected) return [];
@@ -69,7 +71,7 @@ export default function MyClass() {
   const studentRows = useMemo(
     () =>
       students.map((s) => {
-        const sorted = [...(s.scores ?? [])].sort(
+        const sorted = [...((s.scores ?? []).filter((sc) => teacherTestIds.has(sc.testId)))].sort(
           (a, b) => new Date(b.date ?? 0) - new Date(a.date ?? 0)
         );
         const latest = sorted[0] ?? null;
@@ -82,7 +84,7 @@ export default function MyClass() {
           latestDate: latest?.date ? new Date(latest.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—',
         };
       }),
-    [students, testById]
+    [students, testById, teacherTestIds]
   );
 
   // Class stats

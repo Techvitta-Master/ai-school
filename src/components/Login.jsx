@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useSchool } from '../context/SchoolContext';
 import { GraduationCap, Mail, Lock, Eye, EyeOff, ChevronRight, Sparkles } from 'lucide-react';
@@ -13,9 +13,10 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [role, setRole] = useState('teacher');
-  const { login } = useSchool();
+  const { login, currentUser } = useSchool();
   const navigate = useNavigate();
   const successMessage = location.state?.successMessage;
+  const [pendingRole, setPendingRole] = useState('');
 
   const demoEmails = {
     admin: import.meta.env.VITE_DEMO_EMAIL_ADMIN || 'admin@school.com',
@@ -48,8 +49,34 @@ export default function Login() {
       setError('Signed in but your role could not be determined.');
       return;
     }
-    navigate(`/${pathRole}`, { replace: true });
+    // Defer route transition until auth context has the resolved user.
+    setPendingRole(pathRole);
   };
+
+  useEffect(() => {
+    if (!pendingRole) return;
+    // Preferred path: once context resolves, navigate by resolved role.
+    if (currentUser?.role) {
+      navigate(`/${String(currentUser.role).toLowerCase()}`, { replace: true });
+      setPendingRole('');
+      return;
+    }
+
+    // Fallback path: if role hydration lags, still move to intended route.
+    const timeout = window.setTimeout(() => {
+      navigate(`/${pendingRole}`, { replace: true });
+      setPendingRole('');
+    }, 900);
+
+    return () => window.clearTimeout(timeout);
+  }, [pendingRole, currentUser?.role, navigate]);
+
+  useEffect(() => {
+    // If we are already authenticated and hit /login, forward immediately.
+    if (!currentUser?.role) return;
+    navigate(`/${String(currentUser.role).toLowerCase()}`, { replace: true });
+    setPendingRole('');
+  }, [currentUser?.role, navigate]);
 
   const fillDemo = (demoRole) => {
     setRole(demoRole);

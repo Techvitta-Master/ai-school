@@ -1,6 +1,8 @@
 /** API mode is explicit and simple. */
 export function useApiLayer() {
-  return import.meta.env.VITE_USE_API === 'true';
+  const raw = String(import.meta.env.VITE_USE_API || '').toLowerCase();
+  if (raw === 'false') return false;
+  return true;
 }
 
 /** Base URL for REST calls, no dev proxy required. */

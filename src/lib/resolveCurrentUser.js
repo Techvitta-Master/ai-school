@@ -1,106 +1,84 @@
 /**
- * Resolve app role and ids from Supabase Auth user + profiles + user_roles + teachers/students rows.
+ * Resolve app role and ids from new normalized schema:
+ * users, schools, subjects, teachers, students, classes.
  */
 export async function resolveCurrentUser(supabase, user) {
   if (!user) return null;
 
-  const env =
-    typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env
-      : {};
   const email = user.email;
-  const normalizedEmail = String(email || '').trim().toLowerCase();
-  const demoAdminEmail = String(env.VITE_DEMO_EMAIL_ADMIN || 'admin@school.com').trim().toLowerCase();
-  const demoSchoolEmail = String(env.VITE_DEMO_EMAIL_SCHOOL || 'school@school.com').trim().toLowerCase();
-  const demoTeacherEmail = String(env.VITE_DEMO_EMAIL_TEACHER || 'priya@school.com').trim().toLowerCase();
-  const demoStudentEmail = String(env.VITE_DEMO_EMAIL_STUDENT || 'aarav.patel@student.com').trim().toLowerCase();
-  const demoSchoolId = 'd0000000-0000-4000-8000-000000000001';
   const name =
     user.user_metadata?.full_name ||
     user.user_metadata?.name ||
     email?.split('@')[0];
 
-  const metaRole = user.user_metadata?.role ? String(user.user_metadata.role) : null;
-
   const authUserId = user.id;
+  const [{ data: userRow }, { data: teacherByUid }, { data: studentByUid }] = await Promise.all([
+    supabase.from('users').select('id, email, role').eq('id', user.id).maybeSingle(),
+    supabase
+      .from('teachers')
+      .select('id, name, school_id, subject_id, subjects(name)')
+      .eq('user_id', user.id)
+      .maybeSingle(),
+    supabase
+      .from('students')
+      .select('id, name, school_id, class_id')
+      .eq('user_id', user.id)
+      .maybeSingle(),
+  ]);
 
-  if (metaRole === 'admin') {
-    return { role: 'admin', id: 'admin', name: name || 'School Admin', authUserId };
-  }
-
-  const [{ data: roleRows }, { data: profileRow }, { data: teacherByUid }, { data: studentByUid }] =
-    await Promise.all([
-      supabase.from('user_roles').select('role').eq('user_id', user.id),
-      supabase.from('profiles').select('role, school_id').eq('user_id', user.id).maybeSingle(),
-      supabase.from('teachers').select('id, name, subject').eq('user_id', user.id).maybeSingle(),
-      supabase.from('students').select('id, name').eq('user_id', user.id).maybeSingle(),
-    ]);
-
-  let schoolName = '';
-  if (profileRow?.school_id) {
-    const { data: schoolRow } = await supabase.from('schools').select('name').eq('id', profileRow.school_id).maybeSingle();
-    schoolName = schoolRow?.name || '';
-  }
-
-  const roleFromTable = roleRows?.[0]?.role ? String(roleRows[0].role) : null;
-  const profileRole = profileRow?.role ? String(profileRow.role) : null;
-
-  const { data: teacherByEmail } = !teacherByUid
-    ? await supabase.from('teachers').select('id, name, subject').eq('email', email).maybeSingle()
-    : { data: null };
-
-  const { data: studentByEmail } = !studentByUid
-    ? await supabase.from('students').select('id, name').eq('email', email).maybeSingle()
-    : { data: null };
-
-  const teacher = teacherByUid || teacherByEmail;
-  const student = studentByUid || studentByEmail;
-
-  const role =
-    roleFromTable ||
-    profileRole ||
-    metaRole ||
-    (normalizedEmail === demoSchoolEmail ? 'school' : null) ||
-    (normalizedEmail === demoAdminEmail ? 'admin' : null) ||
-    (normalizedEmail === demoTeacherEmail ? 'teacher' : null) ||
-    (normalizedEmail === demoStudentEmail ? 'student' : null) ||
-    (teacher ? 'teacher' : student ? 'student' : 'admin');
+  const role = String(userRow?.role || user.user_metadata?.role || '').toLowerCase();
 
   if (role === 'school') {
+    let { data: schoolRow } = await supabase
+      .from('schools')
+      .select('id, name')
+      .eq('created_by', user.id)
+      .maybeSingle();
+    if (!schoolRow) {
+      const { data: schools } = await supabase.from('schools').select('id, name').order('created_at');
+      if ((schools || []).length === 1) {
+        schoolRow = schools[0];
+      }
+    }
     return {
       role: 'school',
       id: user.id,
       authUserId,
+      email,
       name: name || 'School',
-      schoolId: profileRow?.school_id ?? (normalizedEmail === demoSchoolEmail ? demoSchoolId : null),
-      schoolName: schoolName || (normalizedEmail === demoSchoolEmail ? 'Madavi Institute' : ''),
+      schoolId: schoolRow?.id ?? null,
+      schoolName: schoolRow?.name ?? '',
     };
   }
 
   if (role === 'admin') {
-    return { role: 'admin', id: 'admin', name: name || 'School Admin', authUserId };
+    return { role: 'admin', id: 'admin', name: name || 'School Admin', authUserId, email };
   }
 
   if (role === 'teacher') {
     return {
       role: 'teacher',
-      id: teacher?.id ?? user.id,
+      id: teacherByUid?.id ?? user.id,
       authUserId,
-      name: teacher?.name ?? name ?? 'Teacher',
-      subject: teacher?.subject || '',
-      schoolId: profileRow?.school_id ?? null,
+      email,
+      name: teacherByUid?.name ?? name ?? 'Teacher',
+      subject: teacherByUid?.subjects?.name || '',
+      subjectId: teacherByUid?.subject_id ?? null,
+      schoolId: teacherByUid?.school_id ?? null,
     };
   }
 
   if (role === 'student') {
     return {
       role: 'student',
-      id: student?.id ?? user.id,
+      id: studentByUid?.id ?? user.id,
       authUserId,
-      name: student?.name ?? name ?? 'Student',
-      schoolId: profileRow?.school_id ?? null,
+      email,
+      name: studentByUid?.name ?? name ?? 'Student',
+      schoolId: studentByUid?.school_id ?? null,
+      classId: studentByUid?.class_id ?? null,
     };
   }
 
-  return { role: 'admin', id: 'admin', name: name || 'School Admin', authUserId };
+  return { role: 'admin', id: 'admin', name: name || 'School Admin', authUserId, email };
 }

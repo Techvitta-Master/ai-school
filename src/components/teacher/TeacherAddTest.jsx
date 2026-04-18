@@ -1,16 +1,34 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSchool } from '../../context/SchoolContext';
-import { Plus, Loader2, ClipboardList, FileText, Clock, Target } from 'lucide-react';
+import { Plus, Loader2, ClipboardList, FileText, Clock, Target, Trash2 } from 'lucide-react';
 
 export default function TeacherAddTest() {
-  const { data, createTest } = useSchool();
-  const tests = [...(data?.tests ?? [])].sort((a, b) =>
-    String(b.createdAt || '').localeCompare(String(a.createdAt || ''))
+  const { data, createTest, removeTest, getCurrentTeacher, getCurrentTeacherId, getTeacherRelevantTestIds } = useSchool();
+  const teacherId = getCurrentTeacherId();
+  const teacherTestIds = useMemo(
+    () => (teacherId ? getTeacherRelevantTestIds(teacherId) : new Set()),
+    [teacherId, getTeacherRelevantTestIds]
   );
+  const tests = useMemo(
+    () =>
+      [...(data?.tests ?? [])]
+        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))),
+    [data?.tests]
+  );
+  const classOptions = useMemo(() => {
+    const allClasses = data?.schoolClasses ?? [];
+    const teacher = getCurrentTeacher();
+    const assigned = teacher?.classes ?? [];
+    if (!assigned.length) return allClasses;
+    const assignedKeys = new Set(assigned.map((c) => String(c.class)));
+    return allClasses.filter((c) => assignedKeys.has(String(c.class)));
+  }, [data?.schoolClasses, getCurrentTeacher]);
   const [title, setTitle] = useState('');
+  const [classId, setClassId] = useState('');
   const [totalMarks, setTotalMarks] = useState(100);
   const [duration, setDuration] = useState(60);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -25,6 +43,7 @@ export default function TeacherAddTest() {
     setSaving(true);
     const r = await createTest({
       title: title.trim(),
+      classId,
       totalMarks,
       duration,
       topics: [],
@@ -36,7 +55,22 @@ export default function TeacherAddTest() {
     }
     setSuccess('Test saved. Use Upload & Analyze to attach answer sheets.');
     setTitle('');
+    setClassId('');
     setTimeout(() => setSuccess(''), 5000);
+  };
+
+  const handleDelete = async (id) => {
+    setError('');
+    setSuccess('');
+    setDeletingId(id);
+    try {
+      await removeTest(id);
+      setSuccess('Test deleted.');
+    } catch (err) {
+      setError(err?.message || 'Failed to delete test.');
+    } finally {
+      setDeletingId('');
+    }
   };
 
   return (
@@ -67,6 +101,22 @@ export default function TeacherAddTest() {
               className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
               required
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Class</label>
+            <select
+              value={classId}
+              onChange={(e) => setClassId(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+              required
+            >
+              <option value="">Select class</option>
+              {classOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.className || `Class ${c.class}`}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -129,6 +179,9 @@ export default function TeacherAddTest() {
                       {[t.theme && `Theme: ${t.theme}`, t.chapter > 0 && `Ch. ${t.chapter}`, t.domain].filter(Boolean).join(' · ')}
                     </p>
                   )}
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {teacherTestIds.has(t.id) ? 'Teacher-related test' : 'All-school test'}
+                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 shrink-0">
                   <span className="inline-flex items-center gap-1">
@@ -144,6 +197,16 @@ export default function TeacherAddTest() {
                       {new Date(t.createdAt).toLocaleDateString()}
                     </span>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(t.id)}
+                    disabled={deletingId === t.id}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                    title="Delete test"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    {deletingId === t.id ? 'Deleting…' : 'Delete'}
+                  </button>
                 </div>
               </li>
             ))}

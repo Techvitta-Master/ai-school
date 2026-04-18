@@ -10,7 +10,6 @@ import * as schoolApi from '../lib/schoolApi';
 const SchoolContext = createContext();
 const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || '123456';
 const DEMO_USER_STORAGE_KEY = 'demoCurrentUser';
-const DEMO_SCHOOL_ID = 'd0000000-0000-4000-8000-000000000001'; // Madavi Institute (018_madavi_seed.sql)
 const normalizeEmail = (value) => (value || '').trim().toLowerCase();
 const DEMO_USERS = {
   [normalizeEmail(import.meta.env.VITE_DEMO_EMAIL_ADMIN || 'admin@school.com')]: {
@@ -18,15 +17,15 @@ const DEMO_USERS = {
   },
   [normalizeEmail(import.meta.env.VITE_DEMO_EMAIL_SCHOOL || 'school@school.com')]: {
     role: 'school', id: 'school-demo', name: 'Madavi School Admin',
-    schoolId: DEMO_SCHOOL_ID, schoolName: 'Madavi Institute', isDemo: true,
+    schoolId: null, schoolName: '', isDemo: true,
   },
   [normalizeEmail(import.meta.env.VITE_DEMO_EMAIL_TEACHER || 'priya@school.com')]: {
     role: 'teacher', id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1',
-    name: 'Priya Sharma', subject: 'Social Science', schoolId: DEMO_SCHOOL_ID, isDemo: true,
+    name: 'Priya Sharma', subject: 'Social Science', schoolId: null, isDemo: true,
   },
   [normalizeEmail(import.meta.env.VITE_DEMO_EMAIL_STUDENT || 'aarav.patel@student.com')]: {
     role: 'student', id: 'cccccccc-cccc-cccc-cccc-ccccccccccc1',
-    name: 'Aarav Patel', schoolId: DEMO_SCHOOL_ID, isDemo: true,
+    name: 'Aarav Patel', schoolId: null, isDemo: true,
   },
 };
 
@@ -53,30 +52,119 @@ function buildMinimalUserFromSession(user) {
       id: user.id,
       authUserId,
       name: user.user_metadata?.full_name || demo.name,
-      schoolId: DEMO_SCHOOL_ID,
-      schoolName: 'Madavi Institute',
+      schoolId: null,
+      schoolName: '',
     };
   }
   if (role === 'teacher') {
     return {
       role: 'teacher',
-      id: demo.id,
+      id: user.id,
       authUserId,
-      name: demo.name,
-      subject: demo.subject,
-      schoolId: DEMO_SCHOOL_ID,
+      email: user.email || '',
+      name: user.user_metadata?.full_name || demo.name,
+      subject: user.user_metadata?.subject || demo.subject,
+      schoolId: null,
     };
   }
   if (role === 'student') {
     return {
       role: 'student',
-      id: demo.id,
+      id: user.id,
       authUserId,
-      name: demo.name,
-      schoolId: DEMO_SCHOOL_ID,
+      email: user.email || '',
+      name: user.user_metadata?.full_name || demo.name,
+      schoolId: null,
     };
   }
   return null;
+}
+
+function parseClassNumber(value) {
+  const s = String(value ?? '').trim();
+  const m = s.match(/(\d+)/);
+  return m ? Number(m[1]) : 0;
+}
+
+function mapApiSchoolData(raw) {
+  if (!raw || typeof raw !== 'object') return { ...emptySchoolData };
+  const classes = Array.isArray(raw.classes) ? raw.classes : [];
+  const subjects = Array.isArray(raw.subjects) ? raw.subjects : [];
+  const teachersRaw = Array.isArray(raw.teachers) ? raw.teachers : [];
+  const studentsRaw = Array.isArray(raw.students) ? raw.students : [];
+  const testsRaw = Array.isArray(raw.tests) ? raw.tests : [];
+  const resultsRaw = Array.isArray(raw.results) ? raw.results : [];
+  const teacherClassesRaw = Array.isArray(raw.teacher_classes) ? raw.teacher_classes : [];
+
+  const classById = Object.fromEntries(classes.map((c) => [c.id, c]));
+  const subjectById = Object.fromEntries(subjects.map((s) => [s.id, s.name]));
+  const testsById = Object.fromEntries(
+    testsRaw.map((t) => [
+      t.id,
+      {
+        id: t.id,
+        title: t.name,
+        type: t.name,
+        domain: subjectById[t.subject_id] || '',
+        created_by_teacher_id: t.created_by,
+        createdAt: t.created_at,
+      },
+    ])
+  );
+
+  const teachers = teachersRaw.map((t) => ({
+    id: t.id,
+    userId: t.user_id || null,
+    name: t.name,
+    email: t.email,
+    subject: subjectById[t.subject_id] || '',
+    classes: [],
+  }));
+  const teacherById = Object.fromEntries(teachers.map((t) => [t.id, t]));
+  const schoolClasses = classes.map((c) => ({
+    id: c.id,
+    class: parseClassNumber(c.name),
+    className: c.name,
+    teachers: [],
+  }));
+  const schoolClassById = Object.fromEntries(schoolClasses.map((c) => [c.id, c]));
+  for (const link of teacherClassesRaw) {
+    const teacher = teacherById[link.teacher_id];
+    const cls = schoolClassById[link.class_id];
+    if (!teacher || !cls) continue;
+    teacher.classes.push({ class: cls.class, subject: teacher.subject || '' });
+    cls.teachers.push({ teacherId: teacher.id, subject: teacher.subject || '' });
+  }
+  const scoresByStudent = {};
+  for (const r of resultsRaw) {
+    if (!scoresByStudent[r.student_id]) scoresByStudent[r.student_id] = [];
+    scoresByStudent[r.student_id].push({
+      id: r.id,
+      testId: r.test_id,
+      score: Number(r.marks) || 0,
+      date: r.created_at || null,
+      topicScores: {},
+    });
+  }
+  const students = studentsRaw.map((s) => ({
+    id: s.id,
+    name: s.name,
+    email: s.email,
+    class: parseClassNumber(classById[s.class_id]?.name),
+    rollNo: s.roll_no != null ? Number(s.roll_no) || 0 : 0,
+    assignedTeacher: '',
+    scores: scoresByStudent[s.id] || [],
+  }));
+
+  return {
+    ...emptySchoolData,
+    teachers,
+    students,
+    tests: Object.values(testsById),
+    schoolClasses,
+    subjects: subjects.map((s) => s.name).filter(Boolean),
+    subjectRows: subjects.map((s) => ({ id: s.id, name: s.name })),
+  };
 }
 
 const getStoredDemoUser = () => {
@@ -131,6 +219,41 @@ function collectStudentIdsForTeacher(d, teacherId) {
   return ids;
 }
 
+function normalizeSubject(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function upsertTeacherClassAssignmentInData(prev, { teacherId, className, subject }) {
+  const next = { ...(prev || emptySchoolData) };
+  const normSubject = String(subject || '').trim();
+  const classNum = parseClassNumber(className);
+  const classKey = String(classNum);
+
+  next.teachers = [...(next.teachers || [])].map((t) => {
+    if (t.id !== teacherId) return t;
+    const classes = [...(t.classes || [])];
+    const exists = classes.some(
+      (c) => String(c.class) === classKey && normalizeSubject(c.subject) === normalizeSubject(normSubject)
+    );
+    if (!exists) classes.push({ class: classNum, subject: normSubject });
+    return { ...t, classes };
+  });
+
+  next.schoolClasses = [...(next.schoolClasses || [])].map((c) => {
+    if (String(c.class) !== classKey) return c;
+    const teachers = [...(c.teachers || [])];
+    const idx = teachers.findIndex((x) => normalizeSubject(x.subject) === normalizeSubject(normSubject));
+    if (idx >= 0) {
+      teachers[idx] = { ...teachers[idx], teacherId };
+    } else {
+      teachers.push({ teacherId, subject: normSubject });
+    }
+    return { ...c, teachers };
+  });
+
+  return next;
+}
+
 export const SchoolProvider = ({ children }) => {
   const [data, setData] = useState(emptySchoolData);
   const dataRef = useRef(data);
@@ -138,6 +261,7 @@ export const SchoolProvider = ({ children }) => {
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
+  const loginInProgressRef = useRef(false);
 
   useEffect(() => {
     dataRef.current = data;
@@ -157,7 +281,7 @@ export const SchoolProvider = ({ children }) => {
       const token = s?.session?.access_token;
       if (!token) return;
       const next = await schoolApi.loadSchoolData(token, { schoolId });
-      setData(next);
+      setData(mapApiSchoolData(next));
       return;
     }
     const next = await repo.loadSchoolData(supabase, { schoolId });
@@ -222,6 +346,13 @@ export const SchoolProvider = ({ children }) => {
         if (!resolved && user) {
           resolved = buildMinimalUserFromSession(user);
         }
+        if (resolved && user) {
+          resolved = {
+            ...resolved,
+            authUserId: resolved.authUserId || user.id,
+            email: resolved.email || user.email || '',
+          };
+        }
         if (!isMounted) return;
         setCurrentUser(resolved);
       } catch (err) {
@@ -240,13 +371,11 @@ export const SchoolProvider = ({ children }) => {
 
     // Only react to real sign-out. Re-fetching /me here races with login()'s setSession and was
     // clearing or overwriting currentUser right after a successful password login.
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      let user = session?.user ?? null;
-      if (!user) {
-        const { data: fresh } = await supabase.auth.getSession();
-        user = fresh?.session?.user ?? null;
-      }
-      if (!user) {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      // During login transition, ignore stale SIGNED_OUT emissions from a prior logout.
+      if (loginInProgressRef.current && event === 'SIGNED_OUT') return;
+
+      if (event === 'SIGNED_OUT' || !session?.user) {
         clearStoredDemoUser();
         setCurrentUser(null);
       }
@@ -282,13 +411,6 @@ export const SchoolProvider = ({ children }) => {
         return;
       }
 
-      if (currentUser.role === 'school' && !currentUser.schoolId) {
-        setData({ ...emptySchoolData });
-        setDataLoading(false);
-        setAuthError('Your account is not linked to a school. Contact support.');
-        return;
-      }
-
       setDataLoading(true);
       try {
         const schoolId = currentUser.role === 'school' ? currentUser.schoolId : null;
@@ -297,7 +419,63 @@ export const SchoolProvider = ({ children }) => {
           const { data: s } = await supabase.auth.getSession();
           const token = s?.session?.access_token;
           if (!token) throw new Error('No access token.');
-          remote = await schoolApi.loadSchoolData(token, { schoolId });
+          const remoteRaw = await schoolApi.loadSchoolData(token, { schoolId });
+          remote = mapApiSchoolData(remoteRaw);
+          // Auto-heal teacher/student identity when fallback login created auth-id-based user object.
+          if (currentUser.role === 'teacher') {
+            const byTeacherId = (remoteRaw?.teachers || []).find((t) => t.id === currentUser.id);
+            const byAuthUserId = (remoteRaw?.teachers || []).find((t) => t.user_id === currentUser.authUserId);
+            const byEmail = (remoteRaw?.teachers || []).find(
+              (t) => normalizeEmail(t.email) === normalizeEmail(currentUser.email)
+            );
+            const t = byTeacherId || byAuthUserId || byEmail || null;
+            if (t && t.id !== currentUser.id) {
+              const subjectName =
+                (remoteRaw?.subjects || []).find((s2) => s2.id === t.subject_id)?.name || currentUser.subject || '';
+              setCurrentUser((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      id: t.id,
+                      schoolId: t.school_id || prev.schoolId || null,
+                      subject: subjectName,
+                      email: prev.email || t.email || '',
+                    }
+                  : prev
+              );
+            }
+          }
+          if (currentUser.role === 'student') {
+            const byStudentId = (remoteRaw?.students || []).find((st) => st.id === currentUser.id);
+            const byAuthUserId = (remoteRaw?.students || []).find((st) => st.user_id === currentUser.authUserId);
+            const byEmail = (remoteRaw?.students || []).find(
+              (st) => normalizeEmail(st.email) === normalizeEmail(currentUser.email)
+            );
+            const st = byStudentId || byAuthUserId || byEmail || null;
+            if (st && st.id !== currentUser.id) {
+              setCurrentUser((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      id: st.id,
+                      schoolId: st.school_id || prev.schoolId || null,
+                      classId: st.class_id || prev.classId || null,
+                      email: prev.email || st.email || '',
+                    }
+                  : prev
+              );
+            }
+          }
+          if (!currentUser.schoolId && currentUser.role === 'school') {
+            const inferredSchoolId =
+              remoteRaw?.classes?.[0]?.school_id ||
+              remoteRaw?.teachers?.[0]?.school_id ||
+              remoteRaw?.students?.[0]?.school_id ||
+              null;
+            if (inferredSchoolId) {
+              setCurrentUser((prev) => (prev ? { ...prev, schoolId: inferredSchoolId } : prev));
+            }
+          }
         } else {
           remote = await repo.loadSchoolData(supabase, { schoolId });
         }
@@ -325,12 +503,15 @@ export const SchoolProvider = ({ children }) => {
   }, [authLoading, currentUser]);
 
   const login = async (email, password) => {
+    loginInProgressRef.current = true;
+    setAuthLoading(true);
     setAuthError(null);
     clearStoredDemoUser();
     const normalizedEmail = (email || '').trim().toLowerCase();
 
     if (!supabase) {
       setAuthError('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+      setAuthLoading(false);
       return { success: false, role: null };
     }
 
@@ -360,7 +541,11 @@ export const SchoolProvider = ({ children }) => {
       if (!nextUser?.role) {
         throw new Error('Could not resolve your role after login.');
       }
-      nextUser = { ...nextUser, authUserId: verify.session.user.id };
+      nextUser = {
+        ...nextUser,
+        authUserId: verify.session.user.id,
+        email: nextUser.email || verify.session.user.email || normalizedEmail,
+      };
       clearStoredDemoUser();
       setCurrentUser(nextUser);
       return { success: true, role: String(nextUser.role).toLowerCase(), error: null };
@@ -369,6 +554,9 @@ export const SchoolProvider = ({ children }) => {
       setAuthError(msg);
       setCurrentUser(null);
       return { success: false, role: null, error: msg };
+    } finally {
+      loginInProgressRef.current = false;
+      setAuthLoading(false);
     }
   };
 
@@ -413,6 +601,10 @@ export const SchoolProvider = ({ children }) => {
     if (sessionErr) return { error: sessionErr };
     try {
       const payload = { ...teacher };
+      if (payload.subjectId == null && payload.subject) {
+        const match = (dataRef.current.subjectRows || []).find((s) => s.name === payload.subject);
+        if (match?.id) payload.subjectId = match.id;
+      }
       if (currentUser?.role === 'school' && currentUser.schoolId) {
         payload.schoolId = currentUser.schoolId;
       }
@@ -464,6 +656,33 @@ export const SchoolProvider = ({ children }) => {
         payload.schoolId = student.schoolId;
       }
       const schoolIdForClass = payload.schoolId || currentUser?.schoolId;
+      const resolveClassIdFromInput = async () => {
+        if (payload.classId) return payload.classId;
+        if (payload.class_id) return payload.class_id;
+        const raw = String(payload.className ?? payload.class ?? '').trim();
+        if (!raw) return null;
+        const inputNum = parseClassNumber(raw);
+        const localMatch = (dataRef.current.schoolClasses || []).find((c) => {
+          const byId = raw === c.id;
+          const byName = String(c.className || '').trim().toLowerCase() === raw.toLowerCase();
+          const byNum = inputNum > 0 && Number(c.class) === inputNum;
+          return byId || byName || byNum;
+        });
+        if (localMatch?.id) return localMatch.id;
+        if (useApiLayer() && schoolIdForClass) {
+          const token = await getAccessToken();
+          if (!token) return null;
+          const classIdMap = await schoolApi.fetchClassIdMapApi(token, schoolIdForClass);
+          const entries = Array.from(classIdMap.entries());
+          const mapMatch = entries.find(([name]) => {
+            const byName = String(name || '').trim().toLowerCase() === raw.toLowerCase();
+            const byNum = inputNum > 0 && parseClassNumber(name) === inputNum;
+            return byName || byNum;
+          });
+          if (mapMatch?.[1]) return mapMatch[1];
+        }
+        return null;
+      };
       try {
         if (useApiLayer()) {
           const t = await getAccessToken();
@@ -476,6 +695,10 @@ export const SchoolProvider = ({ children }) => {
         }
       } catch (classErr) {
         console.warn('Class upsert skipped (may already exist):', classErr?.message);
+      }
+      payload.classId = await resolveClassIdFromInput();
+      if (!payload.classId) {
+        return { error: 'Class could not be resolved. Please select a valid class.' };
       }
       if (useApiLayer()) {
         const token = await getAccessToken();
@@ -507,6 +730,33 @@ export const SchoolProvider = ({ children }) => {
         payload.schoolId = student.schoolId;
       }
       const schoolIdForClass = payload.schoolId || currentUser?.schoolId;
+      const resolveClassIdFromInput = async () => {
+        if (payload.classId) return payload.classId;
+        if (payload.class_id) return payload.class_id;
+        const raw = String(payload.className ?? payload.class ?? '').trim();
+        if (!raw) return null;
+        const inputNum = parseClassNumber(raw);
+        const localMatch = (dataRef.current.schoolClasses || []).find((c) => {
+          const byId = raw === c.id;
+          const byName = String(c.className || '').trim().toLowerCase() === raw.toLowerCase();
+          const byNum = inputNum > 0 && Number(c.class) === inputNum;
+          return byId || byName || byNum;
+        });
+        if (localMatch?.id) return localMatch.id;
+        if (useApiLayer() && schoolIdForClass) {
+          const token = await getAccessToken();
+          if (!token) return null;
+          const classIdMap = await schoolApi.fetchClassIdMapApi(token, schoolIdForClass);
+          const entries = Array.from(classIdMap.entries());
+          const mapMatch = entries.find(([name]) => {
+            const byName = String(name || '').trim().toLowerCase() === raw.toLowerCase();
+            const byNum = inputNum > 0 && parseClassNumber(name) === inputNum;
+            return byName || byNum;
+          });
+          if (mapMatch?.[1]) return mapMatch[1];
+        }
+        return null;
+      };
       try {
         if (useApiLayer()) {
           const t = await getAccessToken();
@@ -519,6 +769,10 @@ export const SchoolProvider = ({ children }) => {
         }
       } catch (classErr) {
         console.warn('Class upsert skipped (may already exist):', classErr?.message);
+      }
+      payload.classId = await resolveClassIdFromInput();
+      if (!payload.classId) {
+        return { error: 'Class could not be resolved. Please select a valid class.' };
       }
       if (useApiLayer()) {
         const token = await getAccessToken();
@@ -559,24 +813,28 @@ export const SchoolProvider = ({ children }) => {
   };
 
   const assignTeacherToClass = async (teacherId, className, subject) => {
-    if (!supabase || currentUser?.isDemo) return;
+    if (!supabase || currentUser?.isDemo) return { error: 'Supabase is not configured.' };
     const schoolId = currentUser?.schoolId;
     if (!schoolId) {
       setAuthError('Your account is not linked to a school.');
-      return;
+      return { error: 'Your account is not linked to a school.' };
     }
     try {
       if (useApiLayer()) {
         const token = await getAccessToken();
-        if (!token) return;
+        if (!token) return { error: 'Your session has expired. Please sign in again.' };
         await schoolApi.insertTeacherClassAssignmentApi(token, teacherId, className, subject, schoolId);
+        setData((prev) => upsertTeacherClassAssignmentInData(prev, { teacherId, className, subject }));
       } else {
         const classIdMap = await repo.fetchClassIdMap(supabase, schoolId);
         await repo.insertTeacherClassAssignment(supabase, teacherId, className, subject, classIdMap);
+        await refreshData();
       }
-      await refreshData();
+      return { error: null };
     } catch (err) {
-      setAuthError(err?.message || 'Failed to assign teacher.');
+      const msg = err?.message || 'Failed to assign teacher.';
+      setAuthError(msg);
+      return { error: msg };
     }
   };
 
@@ -596,6 +854,9 @@ export const SchoolProvider = ({ children }) => {
           subject,
           schoolId
         );
+        setData((prev) =>
+          upsertTeacherClassAssignmentInData(prev, { teacherId: newTeacherId, className, subject })
+        );
       } else {
         const classIdMap = await repo.fetchClassIdMap(supabase, schoolId);
         await repo.updateTeacherClassAssignmentTeacher(
@@ -606,8 +867,8 @@ export const SchoolProvider = ({ children }) => {
           subject,
           classIdMap
         );
+        await refreshData();
       }
-      await refreshData();
     } catch (err) {
       setAuthError(err?.message || 'Failed to update assignment.');
     }
@@ -617,12 +878,43 @@ export const SchoolProvider = ({ children }) => {
     if (!supabase || currentUser?.isDemo) {
       return { error: currentUser?.isDemo ? 'Demo mode cannot create tests.' : 'Supabase is not configured.' };
     }
-    const createdBy =
-      currentUser?.role === 'teacher' ? currentUser.id : null;
+    const createdBy = currentUser?.role === 'teacher' ? resolveTeacherId(currentUser.id) : null;
+    const teacherRow = (dataRef.current.teachers || []).find((t) => t.id === createdBy) || null;
+    const subjectRow =
+      (dataRef.current.subjectRows || []).find(
+        (s) => normalizeSubject(s.name) === normalizeSubject(test?.subject || teacherRow?.subject)
+      ) || null;
+
+    const resolveClassId = () => {
+      if (test?.classId) return test.classId;
+      if (test?.class_id) return test.class_id;
+      const classes = dataRef.current.schoolClasses || [];
+      const targetClass = test?.className ?? test?.class;
+      if (targetClass != null && targetClass !== '') {
+        const classNum = parseClassNumber(targetClass);
+        const byNumber = classes.find((c) => String(c.class) === String(classNum));
+        if (byNumber?.id) return byNumber.id;
+      }
+      const teacherClasses = teacherRow?.classes || [];
+      if (teacherClasses.length === 1) {
+        const classNum = parseClassNumber(teacherClasses[0].class);
+        const byTeacherClass = classes.find((c) => String(c.class) === String(classNum));
+        if (byTeacherClass?.id) return byTeacherClass.id;
+      }
+      if (classes.length === 1) return classes[0].id;
+      return null;
+    };
+
     const testPayload = {
       ...test,
-      schoolId: currentUser?.schoolId ?? test.schoolId,
+      name: String(test?.name || test?.title || '').trim(),
+      classId: resolveClassId(),
+      subjectId: test?.subjectId || test?.subject_id || subjectRow?.id || null,
+      schoolId: currentUser?.schoolId ?? test?.schoolId,
     };
+    if (!testPayload.name) return { error: 'Test name is required.' };
+    if (!testPayload.classId) return { error: 'Please select or assign a class before creating a test.' };
+    if (!createdBy) return { error: 'Teacher identity is missing. Please sign in again.' };
     try {
       let newId = null;
       if (useApiLayer()) {
@@ -867,9 +1159,112 @@ export const SchoolProvider = ({ children }) => {
     return { overallScore, subjectWise, topicWise, testWise, weakTopics, strongTopics };
   }, [data]);
 
+  const resolveTeacherId = useCallback((teacherId) => {
+    const teachers = data.teachers || [];
+    const candidate = teacherId || currentUser?.id || null;
+    if (candidate && teachers.some((t) => t.id === candidate)) return candidate;
+    if (currentUser?.authUserId) {
+      const byAuth = teachers.find((t) => t.userId === currentUser.authUserId);
+      if (byAuth?.id) return byAuth.id;
+    }
+    if (currentUser?.email) {
+      const byEmail = teachers.find((t) => normalizeEmail(t.email) === normalizeEmail(currentUser.email));
+      if (byEmail?.id) return byEmail.id;
+    }
+    return candidate;
+  }, [data.teachers, currentUser]);
+
+  const getCurrentTeacherId = useCallback(
+    () => resolveTeacherId(currentUser?.id || null),
+    [resolveTeacherId, currentUser?.id]
+  );
+
+  const getCurrentTeacher = useCallback(() => {
+    const id = getCurrentTeacherId();
+    return (data.teachers || []).find((t) => t.id === id) || null;
+  }, [data.teachers, getCurrentTeacherId]);
+
+  const getTeacherRelevantTestIds = useCallback((teacherId) => {
+    const effectiveTeacherId = resolveTeacherId(teacherId);
+    if (!effectiveTeacherId) return new Set();
+    const teacher = data.teachers.find((t) => t.id === effectiveTeacherId);
+    const subjects = new Set((teacher?.classes || []).map((c) => normalizeSubject(c.subject)).filter(Boolean));
+    if (teacher?.subject) subjects.add(normalizeSubject(teacher.subject));
+
+    const ids = new Set();
+    for (const t of data.tests || []) {
+      const creatorMatch = t.created_by_teacher_id && t.created_by_teacher_id === effectiveTeacherId;
+      const domainMatch = subjects.size > 0 && subjects.has(normalizeSubject(t.domain));
+      if (creatorMatch || domainMatch) ids.add(t.id);
+    }
+    return ids;
+  }, [data.teachers, data.tests, resolveTeacherId]);
+
+  const getStudentPerformanceForTeacher = useCallback((studentId, teacherId) => {
+    const effectiveTeacherId = resolveTeacherId(teacherId);
+    const student = data.students.find((s) => s.id === studentId);
+    if (!student) return null;
+
+    const allowedTestIds = getTeacherRelevantTestIds(effectiveTeacherId);
+    const filteredScores = (student.scores || []).filter((sc) => allowedTestIds.has(sc.testId));
+    const overallScore =
+      filteredScores.length > 0
+        ? filteredScores.reduce((acc, sc) => acc + sc.score, 0) / filteredScores.length
+        : 0;
+
+    const subjectWise = {};
+    const topicWise = {};
+    const testWise = {};
+
+    filteredScores.forEach((sc) => {
+      const test = data.tests.find((t) => t.id === sc.testId);
+      if (test) {
+        const theme = data.syllabus.themes.find((t) =>
+          t.chapters.some((c) => c.chapter_number === test.chapter)
+        );
+        const subject = test.domain || theme?.domain || 'General';
+
+        if (!subjectWise[subject]) subjectWise[subject] = { total: 0, count: 0 };
+        subjectWise[subject].total += sc.score;
+        subjectWise[subject].count++;
+
+        const topicList = test.topics?.length ? test.topics : ['Overall'];
+        const n = Math.max(topicList.length, 1);
+        topicList.forEach((topic) => {
+          if (!topicWise[topic]) topicWise[topic] = { total: 0, count: 0 };
+          const part = sc.topicScores?.[topic];
+          topicWise[topic].total += part != null ? part : sc.score / n;
+          topicWise[topic].count++;
+        });
+
+        testWise[test.title] = sc.score;
+      }
+    });
+
+    Object.keys(subjectWise).forEach((sub) => {
+      subjectWise[sub] = subjectWise[sub].total / subjectWise[sub].count;
+    });
+    Object.keys(topicWise).forEach((top) => {
+      topicWise[top] = topicWise[top].total / topicWise[top].count;
+    });
+
+    const weakTopics = Object.entries(topicWise)
+      .filter(([, score]) => score < 50)
+      .sort((a, b) => a[1] - b[1])
+      .slice(0, 5);
+
+    const strongTopics = Object.entries(topicWise)
+      .filter(([, score]) => score >= 70)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+
+    return { overallScore, subjectWise, topicWise, testWise, weakTopics, strongTopics };
+  }, [data, getTeacherRelevantTestIds, resolveTeacherId]);
+
   const getTeacherPerformance = useCallback(
     (teacherId) => {
-      const rosterIds = collectStudentIdsForTeacher(data, teacherId);
+      const effectiveTeacherId = resolveTeacherId(teacherId);
+      const rosterIds = collectStudentIdsForTeacher(data, effectiveTeacherId);
       const assignedStudents = data.students.filter((s) => rosterIds.has(s.id));
 
       if (assignedStudents.length === 0) {
@@ -877,7 +1272,7 @@ export const SchoolProvider = ({ children }) => {
       }
 
       const studentDetails = assignedStudents.map((s) => {
-        const perf = getStudentPerformance(s.id);
+        const perf = getStudentPerformanceForTeacher(s.id, effectiveTeacherId);
         return { ...s, performance: perf };
       });
 
@@ -904,13 +1299,14 @@ export const SchoolProvider = ({ children }) => {
         studentDetails,
       };
     },
-    [data, getStudentPerformance]
+    [data, getStudentPerformanceForTeacher, resolveTeacherId]
   );
 
   const getTeacherAssignedStudents = useCallback((teacherId) => {
-    const rosterIds = collectStudentIdsForTeacher(data, teacherId);
+    const effectiveTeacherId = resolveTeacherId(teacherId);
+    const rosterIds = collectStudentIdsForTeacher(data, effectiveTeacherId);
     return data.students.filter((s) => rosterIds.has(s.id));
-  }, [data]);
+  }, [data, resolveTeacherId]);
 
   const assignStudentsToTeacher = async (studentIds, teacherId) => {
     if (!supabase) return;
@@ -1001,18 +1397,66 @@ export const SchoolProvider = ({ children }) => {
   };
 
   const addClass = async (className) => {
-    if (!supabase || !currentUser?.schoolId) return;
+    if (!supabase) return { error: 'Supabase is not configured.' };
+    let targetSchoolId = currentUser?.schoolId || null;
+    // Fallback for legacy seed school users that are role-mapped but not directly linked.
+    if (!targetSchoolId && currentUser?.role === 'school') {
+      try {
+        const schools = await schoolApi.fetchSchoolsList();
+        if ((schools || []).length === 1) {
+          targetSchoolId = schools[0].id;
+          setCurrentUser((prev) => (prev ? { ...prev, schoolId: targetSchoolId, schoolName: schools[0].name } : prev));
+        }
+      } catch {
+        // Keep existing error handling below.
+      }
+    }
+    if (!targetSchoolId) {
+      const msg = 'Your account is not linked to a school, so class cannot be created.';
+      setAuthError(msg);
+      return { error: msg };
+    }
     try {
       if (useApiLayer()) {
         const token = await getAccessToken();
-        if (!token) return;
-        await schoolApi.insertClassApi(token, currentUser.schoolId, String(className));
+        if (!token) return { error: 'Your session has expired. Please sign in again.' };
+        await schoolApi.insertClassApi(token, targetSchoolId, String(className));
       } else {
-        await repo.insertClass(supabase, { schoolId: currentUser.schoolId, className: String(className) });
+        await repo.insertClass(supabase, { schoolId: targetSchoolId, className: String(className) });
       }
       await refreshData();
+      return { error: null };
     } catch (err) {
-      setAuthError(err?.message || 'Failed to add class.');
+      const msg = err?.message || 'Failed to add class.';
+      setAuthError(msg);
+      return { error: msg };
+    }
+  };
+
+  const addSubject = async (subjectName) => {
+    if (!supabase) return { error: 'Supabase is not configured.' };
+    const schoolId = currentUser?.schoolId || null;
+    if (!schoolId) {
+      const msg = 'Your account is not linked to a school, so subject cannot be created.';
+      setAuthError(msg);
+      return { error: msg };
+    }
+    const name = String(subjectName || '').trim();
+    if (!name) return { error: 'Subject name is required.' };
+    try {
+      if (useApiLayer()) {
+        const token = await getAccessToken();
+        if (!token) return { error: 'Your session has expired. Please sign in again.' };
+        await schoolApi.insertSubjectApi(token, schoolId, name);
+      } else {
+        return { error: 'Subject creation is available in API mode.' };
+      }
+      await refreshData();
+      return { error: null };
+    } catch (err) {
+      const msg = err?.message || 'Failed to add subject.';
+      setAuthError(msg);
+      return { error: msg };
     }
   };
 
@@ -1043,13 +1487,18 @@ export const SchoolProvider = ({ children }) => {
         getAnswerSheetsByTest,
         saveEvaluation,
         getStudentPerformance,
+        getStudentPerformanceForTeacher,
         getTeacherPerformance,
+        getTeacherRelevantTestIds,
         getTeacherAssignedStudents,
+        getCurrentTeacher,
+        getCurrentTeacherId,
         assignStudentsToTeacher,
         assignStudentToTeacherBySubject,
         getClassStudents,
         getSchoolClasses,
         addClass,
+        addSubject,
         createSchool,
         deleteSchool,
       }}
