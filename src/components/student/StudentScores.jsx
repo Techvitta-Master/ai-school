@@ -1,8 +1,9 @@
 import { useMemo, useState, createElement } from 'react';
+import { Link } from 'react-router-dom';
 import { useSchool } from '../../context/SchoolContext';
 import {
   FileText, TrendingUp, Target, Award, Clock,
-  Sparkles, TrendingDown, Star, BookOpen, User, ExternalLink,
+  Sparkles, TrendingDown, Star, BookOpen, User, ExternalLink, ScrollText, ChevronRight,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -130,6 +131,24 @@ export default function StudentScores() {
           Class {student.class} &nbsp;·&nbsp; Roll #{student.rollNo || '—'}
         </Badge>
       </div>
+
+      <Link
+        to="/student/report-card"
+        className="flex items-center justify-between gap-4 rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-violet-50 px-5 py-4 shadow-sm hover:from-indigo-100/80 hover:to-violet-100/80 transition-colors group"
+      >
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="w-11 h-11 rounded-xl bg-indigo-600 flex items-center justify-center shrink-0">
+            <ScrollText className="w-5 h-5 text-white" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-900">Report card</p>
+            <p className="text-sm text-slate-600 mt-0.5">
+              Session summary, subject averages, and printable reports for each test
+            </p>
+          </div>
+        </div>
+        <ChevronRight className="w-5 h-5 text-indigo-500 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+      </Link>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

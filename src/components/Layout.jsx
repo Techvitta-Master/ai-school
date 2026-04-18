@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useSchool } from '../context/SchoolContext';
 import {
   GraduationCap, LayoutDashboard, Users,
-  BookOpen, FileText, BarChart3, LogOut, ChevronLeft, Bell, Search, Menu, X, Building2, Network,
+  BookOpen, FileText, BarChart3, LogOut, ChevronLeft, Bell, Search, Menu, X, Building2, Network, ScrollText,
 } from 'lucide-react';
 import { Avatar } from './ui/avatar';
 import { Button } from './ui/button';
@@ -49,6 +49,7 @@ const buildRoleConfig = () => ({
     title: 'Dashboard',
     items: [
       { path: '/student', label: 'Scores', icon: FileText },
+      { path: '/student/report-card', label: 'Report card', icon: ScrollText },
       { path: '/student/performance', label: 'Performance', icon: BarChart3 },
       { path: '/student/improvement', label: 'Improvement', icon: BookOpen },
     ],
@@ -130,7 +131,9 @@ export default function Layout({ children, role }) {
               const active =
                 path === '/school' || path === '/admin'
                   ? location.pathname === path || location.pathname === `${path}/`
-                  : location.pathname === path || location.pathname.startsWith(`${path}/`);
+                  : path === '/student'
+                    ? location.pathname === '/student' || location.pathname === '/student/'
+                    : location.pathname === path || location.pathname.startsWith(`${path}/`);
               return (
                 <button
                   type="button"
