@@ -4,6 +4,7 @@ import { useSchool } from '../../context/SchoolContext';
 import { fetchSchoolsList } from '../../lib/schoolApi';
 import { supabase } from '../../lib/supabaseClient';
 import { isApiLayerEnabled } from '../../lib/apiConfig';
+import { DeleteSchoolConfirmDialog } from './DeleteSchoolConfirmDialog';
 
 export default function ManageSchools() {
   const { createSchool, deleteSchool } = useSchool();
@@ -12,6 +13,7 @@ export default function ManageSchools() {
   const [schoolAdminEmail, setSchoolAdminEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [schoolPendingDelete, setSchoolPendingDelete] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -54,8 +56,9 @@ export default function ManageSchools() {
     await loadSchools();
   };
 
-  const onDelete = async (s) => {
-    if (!window.confirm(`Delete “${s.name}”? This removes all data tied to this school.`)) return;
+  const confirmDelete = async () => {
+    if (!schoolPendingDelete) return;
+    const s = schoolPendingDelete;
     setError('');
     setSuccess('');
     setDeletingId(s.id);
@@ -65,6 +68,7 @@ export default function ManageSchools() {
       setError(result.error);
       return;
     }
+    setSchoolPendingDelete(null);
     setSuccess(`“${s.name}” removed.`);
     await loadSchools();
   };
@@ -141,7 +145,7 @@ export default function ManageSchools() {
               </div>
               <button
                 type="button"
-                onClick={() => onDelete(s)}
+                onClick={() => setSchoolPendingDelete({ id: s.id, name: s.name })}
                 disabled={deletingId === s.id}
                 className="shrink-0 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-xl border border-transparent hover:border-red-200 disabled:opacity-50 flex items-center gap-1"
               >
@@ -154,6 +158,13 @@ export default function ManageSchools() {
           )}
         </div>
       </div>
+
+      <DeleteSchoolConfirmDialog
+        school={schoolPendingDelete}
+        deleting={Boolean(schoolPendingDelete && deletingId === schoolPendingDelete.id)}
+        onCancel={() => setSchoolPendingDelete(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }
