@@ -379,6 +379,23 @@ export async function insertClass(supabase, { schoolId, className }) {
   if (error) throw error;
 }
 
+export async function updateClass(supabase, { schoolId, classId, className }) {
+  const cn = String(className ?? '').trim();
+  if (!schoolId || !classId || !cn) throw new Error('schoolId, classId and className are required.');
+  const { error } = await supabase
+    .from('classes')
+    .update({ class_name: cn })
+    .eq('id', classId)
+    .eq('school_id', schoolId);
+  if (error) throw error;
+}
+
+export async function deleteClass(supabase, { schoolId, classId }) {
+  if (!schoolId || !classId) throw new Error('schoolId and classId are required.');
+  const { error } = await supabase.from('classes').delete().eq('id', classId).eq('school_id', schoolId);
+  if (error) throw error;
+}
+
 export async function insertTeacherClassAssignment(supabase, teacherId, className, subject, classIdMap) {
   const cn = typeof className === 'string' ? parseInt(className, 10) : className;
   const key = String(cn);

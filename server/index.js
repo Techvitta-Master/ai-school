@@ -554,6 +554,71 @@ app.post('/api/classes', async (req, res) => {
   }
 });
 
+async function updateSchoolClassRoute(req, res) {
+  try {
+    const ctx = await requireUserSupabase(req, res);
+    if (!ctx) return;
+    const db = createServiceSupabase();
+    const classId = req.params.id;
+    const { className, schoolId } = req.body || {};
+    if (!schoolId || !className) {
+      res.status(400).json({ error: 'schoolId and className are required.' });
+      return;
+    }
+    const { data: row, error: rowErr } = await db
+      .from('classes')
+      .select('id, school_id')
+      .eq('id', classId)
+      .maybeSingle();
+    if (rowErr) throw rowErr;
+    if (!row || row.school_id !== schoolId) {
+      res.status(404).json({ error: 'Class not found in this school.' });
+      return;
+    }
+    const { error } = await db
+      .from('classes')
+      .update({ name: String(className).trim() })
+      .eq('id', classId)
+      .eq('school_id', schoolId);
+    if (error) throw error;
+    res.json({ ok: true, id: classId });
+  } catch (err) {
+    res.status(400).json({ error: err?.message || 'updateClass failed' });
+  }
+}
+
+app.patch('/api/classes/:id', updateSchoolClassRoute);
+app.put('/api/classes/:id', updateSchoolClassRoute);
+
+app.delete('/api/classes/:id', async (req, res) => {
+  try {
+    const ctx = await requireUserSupabase(req, res);
+    if (!ctx) return;
+    const db = createServiceSupabase();
+    const classId = req.params.id;
+    const schoolId = req.query.schoolId;
+    if (!schoolId) {
+      res.status(400).json({ error: 'schoolId query param is required.' });
+      return;
+    }
+    const { data: row, error: rowErr } = await db
+      .from('classes')
+      .select('id, school_id')
+      .eq('id', classId)
+      .maybeSingle();
+    if (rowErr) throw rowErr;
+    if (!row || row.school_id !== schoolId) {
+      res.status(404).json({ error: 'Class not found in this school.' });
+      return;
+    }
+    const { error } = await db.from('classes').delete().eq('id', classId).eq('school_id', schoolId);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err?.message || 'deleteClass failed' });
+  }
+});
+
 app.get('/api/class-id-map', async (req, res) => {
   try {
     const ctx = await requireUserSupabase(req, res);

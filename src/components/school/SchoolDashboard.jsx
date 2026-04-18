@@ -9,6 +9,15 @@ import {
   GraduationCap, LayoutDashboard, Plus, CheckCircle,
   Hash, Pencil,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 /** Suggested grades for "Add class" / student enroll dropdowns (does not create UI cards by itself). */
 const CLASS_GRADE_OPTIONS = [6, 7, 8, 9, 10];
@@ -153,9 +162,12 @@ function SchoolOverview() {
 }
 
 function SchoolClassesPage() {
-  const { data, addClass } = useSchool();
+  const { data, addClass, updateClass, deleteClass } = useSchool();
   const schoolClasses = data.schoolClasses ?? EMPTY_SCHOOL_CLASSES;
   const [showForm, setShowForm] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [classActionError, setClassActionError] = useState('');
   const {
     register,
     handleSubmit,
@@ -163,12 +175,43 @@ function SchoolClassesPage() {
     formState: { errors, isSubmitting },
   } = useForm({ resolver: zodResolver(classSchema), defaultValues: { class: 6 } });
 
+  const editForm = useForm({ resolver: zodResolver(classSchema), defaultValues: { class: 6 } });
+
+  useEffect(() => {
+    if (editTarget) {
+      editForm.reset({ class: editTarget.class });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset when opening edit for a row
+  }, [editTarget?.id, editTarget?.class, editForm.reset]);
+
   const onSubmit = async (values) => {
     const r = await addClass(String(values.class));
     if (!r?.error) {
       reset();
       setShowForm(false);
     }
+  };
+
+  const onSubmitEdit = async (values) => {
+    if (!editTarget) return;
+    setClassActionError('');
+    const r = await updateClass(editTarget.id, String(values.class));
+    if (r?.error) {
+      setClassActionError(r.error);
+      return;
+    }
+    setEditTarget(null);
+  };
+
+  const onConfirmDeleteClass = async () => {
+    if (!deleteTarget) return;
+    setClassActionError('');
+    const r = await deleteClass(deleteTarget.id);
+    if (r?.error) {
+      setClassActionError(r.error);
+      return;
+    }
+    setDeleteTarget(null);
   };
 
   return (
@@ -187,6 +230,10 @@ function SchoolClassesPage() {
           Add class
         </button>
       </div>
+
+      {classActionError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{classActionError}</div>
+      ) : null}
 
       {showForm && (
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
@@ -230,13 +277,39 @@ function SchoolClassesPage() {
             });
             return (
               <div key={row.id} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-11 h-11 bg-indigo-600 rounded-xl flex items-center justify-center">
-                    <span className="text-lg font-bold text-white">{row.class}</span>
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-11 h-11 bg-indigo-600 rounded-xl flex items-center justify-center shrink-0">
+                      <span className="text-lg font-bold text-white">{row.class}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-800">Class {row.class}</p>
+                      <p className="text-xs text-slate-400">{n} students</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-semibold text-slate-800">Class {row.class}</p>
-                    <p className="text-xs text-slate-400">{n} students</p>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      title="Edit class"
+                      onClick={() => {
+                        setClassActionError('');
+                        setEditTarget({ id: row.id, class: row.class });
+                      }}
+                      className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Delete class"
+                      onClick={() => {
+                        setClassActionError('');
+                        setDeleteTarget({ id: row.id, class: row.class, studentCount: n });
+                      }}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
                 {linkedRows.length === 0 ? (
@@ -260,6 +333,69 @@ function SchoolClassesPage() {
           })}
         </div>
       )}
+
+      <Dialog open={Boolean(editTarget)} onOpenChange={(open) => { if (!open) setEditTarget(null); }}>
+        <DialogContent className="max-w-md sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900">Change class</DialogTitle>
+            <DialogDescription className="text-slate-600 text-left">
+              Update the grade label for this class (must stay unique in your school). Students stay on this class row.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={editForm.handleSubmit(onSubmitEdit)} className="space-y-4">
+            <div>
+              <FormSelect label="Class" {...editForm.register('class')}>
+                {CLASS_GRADE_OPTIONS.map((c) => (
+                  <option key={c} value={c}>
+                    Class {c}
+                  </option>
+                ))}
+              </FormSelect>
+              {editForm.formState.errors.class && (
+                <p className="mt-1 text-xs text-red-500">{editForm.formState.errors.class.message}</p>
+              )}
+            </div>
+            <DialogFooter className="gap-2 sm:justify-end">
+              <Button type="button" variant="outline" className="rounded-xl border-slate-200" onClick={() => setEditTarget(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" className="rounded-xl bg-indigo-600 hover:bg-indigo-700" disabled={editForm.formState.isSubmitting}>
+                {editForm.formState.isSubmitting ? 'Saving…' : 'Save'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent className="max-w-md sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900">Delete class?</DialogTitle>
+            <DialogDescription className="text-slate-600 text-left space-y-2">
+              <span>
+                Remove <span className="font-semibold text-slate-800">Class {deleteTarget?.class}</span> and all teacher links for it?
+              </span>
+              {deleteTarget && deleteTarget.studentCount > 0 ? (
+                <span className="block text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm">
+                  This class has {deleteTarget.studentCount} student(s). Deletion will fail until they are moved to another class or removed.
+                </span>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-end flex-col-reverse sm:flex-row">
+            <Button type="button" variant="outline" className="rounded-xl border-slate-200" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+              onClick={() => void onConfirmDeleteClass()}
+            >
+              Delete class
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

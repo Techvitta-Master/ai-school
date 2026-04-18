@@ -88,6 +88,21 @@ export async function insertClassApi(accessToken, schoolId, className) {
   return apiFetch('/classes', { accessToken, method: 'POST', body: { schoolId, className } });
 }
 
+export async function updateClassApi(accessToken, classId, schoolId, className) {
+  return apiFetch(`/classes/${encodeURIComponent(classId)}`, {
+    accessToken,
+    method: 'PUT',
+    body: { schoolId, className },
+  });
+}
+
+export async function deleteClassApi(accessToken, classId, schoolId) {
+  return apiFetch(`/classes/${encodeURIComponent(classId)}?schoolId=${encodeURIComponent(schoolId)}`, {
+    accessToken,
+    method: 'DELETE',
+  });
+}
+
 export async function insertSubjectApi(accessToken, schoolId, name) {
   return apiFetch('/subjects', { accessToken, method: 'POST', body: { schoolId, name } });
 }

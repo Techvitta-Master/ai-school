@@ -1414,6 +1414,86 @@ export const SchoolProvider = ({ children }) => {
     }
   };
 
+  const updateClass = async (classId, newClassLabel) => {
+    if (!supabase) return { error: 'Supabase is not configured.' };
+    let targetSchoolId = currentUser?.schoolId || null;
+    if (!targetSchoolId && currentUser?.role === 'school') {
+      try {
+        const schools = await schoolApi.fetchSchoolsList();
+        if ((schools || []).length === 1) {
+          targetSchoolId = schools[0].id;
+          setCurrentUser((prev) => (prev ? { ...prev, schoolId: targetSchoolId, schoolName: schools[0].name } : prev));
+        }
+      } catch {
+        // handled below
+      }
+    }
+    if (!targetSchoolId) {
+      const msg = 'Your account is not linked to a school, so the class cannot be updated.';
+      setAuthError(msg);
+      return { error: msg };
+    }
+    try {
+      if (isApiLayerEnabled()) {
+        const token = await getAccessToken();
+        if (!token) return { error: 'Your session has expired. Please sign in again.' };
+        await schoolApi.updateClassApi(token, classId, targetSchoolId, String(newClassLabel));
+      } else {
+        await repo.updateClass(supabase, {
+          schoolId: targetSchoolId,
+          classId,
+          className: String(newClassLabel),
+        });
+      }
+      await refreshData();
+      return { error: null };
+    } catch (err) {
+      const msg = err?.message || 'Failed to update class.';
+      setAuthError(msg);
+      return { error: msg };
+    }
+  };
+
+  const deleteClass = async (classId) => {
+    if (!supabase) return { error: 'Supabase is not configured.' };
+    let targetSchoolId = currentUser?.schoolId || null;
+    if (!targetSchoolId && currentUser?.role === 'school') {
+      try {
+        const schools = await schoolApi.fetchSchoolsList();
+        if ((schools || []).length === 1) {
+          targetSchoolId = schools[0].id;
+          setCurrentUser((prev) => (prev ? { ...prev, schoolId: targetSchoolId, schoolName: schools[0].name } : prev));
+        }
+      } catch {
+        // handled below
+      }
+    }
+    if (!targetSchoolId) {
+      const msg = 'Your account is not linked to a school, so the class cannot be deleted.';
+      setAuthError(msg);
+      return { error: msg };
+    }
+    try {
+      if (isApiLayerEnabled()) {
+        const token = await getAccessToken();
+        if (!token) return { error: 'Your session has expired. Please sign in again.' };
+        await schoolApi.deleteClassApi(token, classId, targetSchoolId);
+      } else {
+        await repo.deleteClass(supabase, { schoolId: targetSchoolId, classId });
+      }
+      await refreshData();
+      return { error: null };
+    } catch (err) {
+      let msg = err?.message || 'Failed to delete class.';
+      if (/foreign key|violates|restrict/i.test(String(msg))) {
+        msg =
+          'This class cannot be deleted while students or tests are still linked to it. Move or remove them first.';
+      }
+      setAuthError(msg);
+      return { error: msg };
+    }
+  };
+
   const addSubject = async (subjectName) => {
     if (!supabase) return { error: 'Supabase is not configured.' };
     const schoolId = currentUser?.schoolId || null;
@@ -1479,6 +1559,8 @@ export const SchoolProvider = ({ children }) => {
         getClassStudents,
         getSchoolClasses,
         addClass,
+        updateClass,
+        deleteClass,
         addSubject,
         createSchool,
         deleteSchool,
