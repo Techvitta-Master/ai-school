@@ -100,14 +100,20 @@ const teacherPerf = {
 };
 
 beforeEach(() => {
+  const teacherRow = baseMockData.teachers[0];
   mockUseSchoolReturn = {
     data: baseMockData,
+    currentUser: null,
     login: vi.fn(),
     logout: vi.fn(),
     authLoading: false,
     dataLoading: false,
+    authError: null,
     getStudentPerformance: () => studentPerf,
     getTeacherPerformance: () => teacherPerf,
+    getCurrentTeacher: () => teacherRow,
+    getCurrentTeacherId: () => teacherRow.id,
+    getTeacherRelevantTestIds: () => new Set(['test1']),
   };
 });
 
