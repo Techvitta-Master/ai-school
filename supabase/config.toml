@@ -377,6 +377,16 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Per-function JWT verification (defaults to true if omitted).
+[functions.create-user]
+verify_jwt = true
+
+[functions.delete-user]
+verify_jwt = true
+
+[functions.create-school]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327

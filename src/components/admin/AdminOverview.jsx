@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState, createElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, CalendarDays, CheckCircle2, Clock3, Plus, Trash2 } from 'lucide-react';
-import { fetchSchoolsList, loadSchoolData as loadSchoolDataApi } from '../../lib/schoolApi';
 import { supabase } from '../../lib/supabaseClient';
-import { isApiLayerEnabled } from '../../lib/apiConfig';
 import { useSchool } from '../../context/SchoolContext';
 import * as repo from '../../lib/schoolRepository';
 import { DeleteSchoolConfirmDialog } from './DeleteSchoolConfirmDialog';
@@ -38,6 +36,7 @@ export default function AdminOverview() {
   });
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
+  const [schoolAdminEmail, setSchoolAdminEmail] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -46,12 +45,8 @@ export default function AdminOverview() {
     setLoading(true);
     try {
       let rows = [];
-      if (isApiLayerEnabled()) {
-        rows = await fetchSchoolsList();
-      } else if (supabase) {
-        const { data, error } = await supabase.from('schools').select('id,name,created_at').order('created_at');
-        if (error) throw error;
-        rows = data || [];
+      if (supabase) {
+        rows = await repo.listSchools(supabase);
       }
       setSchools(rows || []);
     } catch {
@@ -100,16 +95,10 @@ export default function AdminOverview() {
         return bd - ad;
       })[0];
 
+      if (!supabase) return;
+
       try {
-        let scopedData;
-        if (isApiLayerEnabled()) {
-          const { data: s } = await supabase.auth.getSession();
-          const token = s?.session?.access_token;
-          if (!token) throw new Error('No access token.');
-          scopedData = await loadSchoolDataApi(token, { schoolId: latest.id });
-        } else {
-          scopedData = await repo.loadSchoolData(supabase, { schoolId: latest.id });
-        }
+        const scopedData = await repo.loadSchoolData(supabase, { schoolId: latest.id });
 
         const teachers = scopedData?.teachers?.length ?? 0;
         const schoolClasses = scopedData?.schoolClasses ?? [];
@@ -163,7 +152,11 @@ export default function AdminOverview() {
     setCreating(true);
     setError('');
     setSuccess('');
-    const result = await createSchool(name);
+    const result = await createSchool(
+      name,
+      String(schoolAdminEmail || '').trim().toLowerCase(),
+      `${String(name || '').trim()} Admin`
+    );
     setCreating(false);
     if (result?.error) {
       setError(result.error);
@@ -171,6 +164,7 @@ export default function AdminOverview() {
     }
     setSuccess(`${result?.school?.name || name} created successfully.`);
     setName('');
+    setSchoolAdminEmail('');
     await loadSchools();
   };
 
@@ -262,6 +256,17 @@ export default function AdminOverview() {
               placeholder="e.g. Madavi Institute"
               required
             />
+            <input
+              type="email"
+              value={schoolAdminEmail}
+              onChange={(e) => setSchoolAdminEmail(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+              placeholder="School portal login email (required)"
+              required
+            />
+            <p className="text-xs text-slate-500">
+              Creates the school admin in Auth and sets ownership so the school dashboard can load data.
+            </p>
             <button
               type="submit"
               disabled={creating}

@@ -1017,9 +1017,46 @@ function SchoolStudentSubjectsPage() {
   );
 }
 
+function SchoolPortalBanner() {
+  const { currentUser, data, dataLoading } = useSchool();
+  if (currentUser?.role !== 'school' || dataLoading) return null;
+
+  if (!currentUser.schoolId) {
+    return (
+      <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <p className="font-medium">School account is not linked to a school row</p>
+        <p className="mt-1 text-amber-800/90">
+          The database needs <code className="rounded bg-amber-100/80 px-1">schools.created_by</code> to equal your
+          login user. Ask a platform admin to open <span className="font-medium">Admin → Manage Schools</span>, find
+          your school, and use <span className="font-medium">Set portal owner</span> with your email. If you own
+          multiple schools, the app uses the oldest one until we add a switcher.
+        </p>
+      </div>
+    );
+  }
+
+  const classesLen = data?.schoolClasses?.length ?? 0;
+  const tLen = data?.teachers?.length ?? 0;
+  const sLen = data?.students?.length ?? 0;
+  const looksEmpty = classesLen === 0 && tLen === 0 && sLen === 0;
+  if (!looksEmpty) return null;
+
+  return (
+    <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+      <p className="font-medium text-slate-800">No classes, teachers, or students yet</p>
+      <p className="mt-1 text-slate-600">
+        If you expected data here, confirm teachers and students use this school&apos;s id and that your account is the
+        portal owner for this school.
+      </p>
+    </div>
+  );
+}
+
 export default function SchoolDashboard() {
   return (
-    <Routes>
+    <>
+      <SchoolPortalBanner />
+      <Routes>
       <Route index element={<SchoolOverview />} />
       <Route path="classes" element={<SchoolClassesPage />} />
       <Route path="subjects" element={<SchoolSubjectsPage />} />
@@ -1029,5 +1066,6 @@ export default function SchoolDashboard() {
       <Route path="student-subjects" element={<SchoolStudentSubjectsPage />} />
       <Route path="*" element={<Navigate to="/school" replace />} />
     </Routes>
+    </>
   );
 }

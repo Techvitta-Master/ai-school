@@ -4,8 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { emptySchoolData } from '../lib/schoolEmptyState';
 import { resolveCurrentUser } from '../lib/resolveCurrentUser';
 import * as repo from '../lib/schoolRepository';
-import { isApiLayerEnabled } from '../lib/apiConfig';
-import * as schoolApi from '../lib/schoolApi';
+import * as authService from '../services/authService';
 
 const SchoolContext = createContext();
 const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || '123456';
@@ -34,7 +33,7 @@ function inferPortalRoleFromEmail(email) {
   return DEMO_USERS[normalizeEmail(email)]?.role ?? null;
 }
 
-/** Last resort when /me + DB resolution fail but JWT session is valid (keeps /school from bouncing to /login). */
+/** Last resort when DB resolution fails but JWT session is valid (keeps /school from bouncing to /login). */
 function buildMinimalUserFromSession(user) {
   if (!user?.email) return null;
   const n = normalizeEmail(user.email);
@@ -86,87 +85,6 @@ function parseClassNumber(value) {
   return m ? Number(m[1]) : 0;
 }
 
-function mapApiSchoolData(raw) {
-  if (!raw || typeof raw !== 'object') return { ...emptySchoolData };
-  const classes = Array.isArray(raw.classes) ? raw.classes : [];
-  const subjects = Array.isArray(raw.subjects) ? raw.subjects : [];
-  const teachersRaw = Array.isArray(raw.teachers) ? raw.teachers : [];
-  const studentsRaw = Array.isArray(raw.students) ? raw.students : [];
-  const testsRaw = Array.isArray(raw.tests) ? raw.tests : [];
-  const resultsRaw = Array.isArray(raw.results) ? raw.results : [];
-  const teacherClassesRaw = Array.isArray(raw.teacher_classes) ? raw.teacher_classes : [];
-
-  const classById = Object.fromEntries(classes.map((c) => [c.id, c]));
-  const subjectById = Object.fromEntries(subjects.map((s) => [s.id, s.name]));
-  const testsById = Object.fromEntries(
-    testsRaw.map((t) => [
-      t.id,
-      {
-        id: t.id,
-        title: t.name,
-        type: t.name,
-        domain: subjectById[t.subject_id] || '',
-        created_by_teacher_id: t.created_by,
-        createdAt: t.created_at,
-      },
-    ])
-  );
-
-  const teachers = teachersRaw.map((t) => ({
-    id: t.id,
-    userId: t.user_id || null,
-    name: t.name,
-    email: t.email,
-    subject: subjectById[t.subject_id] || '',
-    classes: [],
-  }));
-  const teacherById = Object.fromEntries(teachers.map((t) => [t.id, t]));
-  const schoolClasses = classes.map((c) => ({
-    id: c.id,
-    class: parseClassNumber(c.name),
-    className: c.name,
-    teachers: [],
-  }));
-  const schoolClassById = Object.fromEntries(schoolClasses.map((c) => [c.id, c]));
-  for (const link of teacherClassesRaw) {
-    const teacher = teacherById[link.teacher_id];
-    const cls = schoolClassById[link.class_id];
-    if (!teacher || !cls) continue;
-    teacher.classes.push({ class: cls.class, subject: teacher.subject || '' });
-    cls.teachers.push({ teacherId: teacher.id, subject: teacher.subject || '' });
-  }
-  const scoresByStudent = {};
-  for (const r of resultsRaw) {
-    if (!scoresByStudent[r.student_id]) scoresByStudent[r.student_id] = [];
-    scoresByStudent[r.student_id].push({
-      id: r.id,
-      testId: r.test_id,
-      score: Number(r.marks) || 0,
-      date: r.created_at || null,
-      topicScores: {},
-    });
-  }
-  const students = studentsRaw.map((s) => ({
-    id: s.id,
-    name: s.name,
-    email: s.email,
-    class: parseClassNumber(classById[s.class_id]?.name),
-    rollNo: s.roll_no != null ? Number(s.roll_no) || 0 : 0,
-    assignedTeacher: '',
-    scores: scoresByStudent[s.id] || [],
-  }));
-
-  return {
-    ...emptySchoolData,
-    teachers,
-    students,
-    tests: Object.values(testsById),
-    schoolClasses,
-    subjects: subjects.map((s) => s.name).filter(Boolean),
-    subjectRows: subjects.map((s) => ({ id: s.id, name: s.name })),
-  };
-}
-
 const clearStoredDemoUser = () => {
   try {
     window.localStorage.removeItem(DEMO_USER_STORAGE_KEY);
@@ -204,37 +122,6 @@ function normalizeSubject(value) {
   return String(value || '').trim().toLowerCase();
 }
 
-function upsertTeacherClassAssignmentInData(prev, { teacherId, className, subject }) {
-  const next = { ...(prev || emptySchoolData) };
-  const normSubject = String(subject || '').trim();
-  const classNum = parseClassNumber(className);
-  const classKey = String(classNum);
-
-  next.teachers = [...(next.teachers || [])].map((t) => {
-    if (t.id !== teacherId) return t;
-    const classes = [...(t.classes || [])];
-    const exists = classes.some(
-      (c) => String(c.class) === classKey && normalizeSubject(c.subject) === normalizeSubject(normSubject)
-    );
-    if (!exists) classes.push({ class: classNum, subject: normSubject });
-    return { ...t, classes };
-  });
-
-  next.schoolClasses = [...(next.schoolClasses || [])].map((c) => {
-    if (String(c.class) !== classKey) return c;
-    const teachers = [...(c.teachers || [])];
-    const idx = teachers.findIndex((x) => normalizeSubject(x.subject) === normalizeSubject(normSubject));
-    if (idx >= 0) {
-      teachers[idx] = { ...teachers[idx], teacherId };
-    } else {
-      teachers.push({ teacherId, subject: normSubject });
-    }
-    return { ...c, teachers };
-  });
-
-  return next;
-}
-
 export const SchoolProvider = ({ children }) => {
   const [data, setData] = useState(emptySchoolData);
   const dataRef = useRef(data);
@@ -248,23 +135,9 @@ export const SchoolProvider = ({ children }) => {
     dataRef.current = data;
   }, [data]);
 
-  const getAccessToken = useCallback(async () => {
-    if (!supabase) return null;
-    const { data: s } = await supabase.auth.getSession();
-    return s?.session?.access_token ?? null;
-  }, []);
-
   const refreshData = useCallback(async () => {
     if (!supabase || currentUser?.isDemo) return;
     const schoolId = currentUser?.role === 'school' ? currentUser.schoolId : null;
-    if (isApiLayerEnabled()) {
-      const { data: s } = await supabase.auth.getSession();
-      const token = s?.session?.access_token;
-      if (!token) return;
-      const next = await schoolApi.loadSchoolData(token, { schoolId });
-      setData(mapApiSchoolData(next));
-      return;
-    }
     const next = await repo.loadSchoolData(supabase, { schoolId });
     setData(next);
   }, [currentUser]);
@@ -300,20 +173,7 @@ export const SchoolProvider = ({ children }) => {
         }
         let resolved = null;
         try {
-          if (isApiLayerEnabled()) {
-            const token = sessionData?.session?.access_token;
-            if (!token) {
-              setAuthError('No access token in session.');
-            } else {
-              try {
-                resolved = await schoolApi.fetchMe(token);
-              } catch {
-                resolved = await resolveCurrentUser(supabase, user);
-              }
-            }
-          } else {
-            resolved = await resolveCurrentUser(supabase, user);
-          }
+          resolved = await resolveCurrentUser(supabase, user);
         } catch (err) {
           setAuthError(err?.message || 'Failed to resolve user.');
         }
@@ -326,6 +186,17 @@ export const SchoolProvider = ({ children }) => {
         }
         if (!resolved && user) {
           resolved = buildMinimalUserFromSession(user);
+        }
+        if (!resolved?.role && user) {
+          const inferred = inferPortalRoleFromEmail(normalizeEmail(user.email));
+          if (inferred) {
+            resolved = {
+              ...(resolved || {}),
+              role: inferred,
+              authUserId: user.id,
+              email: user.email || '',
+            };
+          }
         }
         if (resolved && user) {
           resolved = {
@@ -395,70 +266,52 @@ export const SchoolProvider = ({ children }) => {
       setDataLoading(true);
       try {
         const schoolId = currentUser.role === 'school' ? currentUser.schoolId : null;
-        let remote;
-        if (isApiLayerEnabled()) {
-          const { data: s } = await supabase.auth.getSession();
-          const token = s?.session?.access_token;
-          if (!token) throw new Error('No access token.');
-          const remoteRaw = await schoolApi.loadSchoolData(token, { schoolId });
-          remote = mapApiSchoolData(remoteRaw);
-          // Auto-heal teacher/student identity when fallback login created auth-id-based user object.
-          if (currentUser.role === 'teacher') {
-            const byTeacherId = (remoteRaw?.teachers || []).find((t) => t.id === currentUser.id);
-            const byAuthUserId = (remoteRaw?.teachers || []).find((t) => t.user_id === currentUser.authUserId);
-            const byEmail = (remoteRaw?.teachers || []).find(
-              (t) => normalizeEmail(t.email) === normalizeEmail(currentUser.email)
+        const remote = await repo.loadSchoolData(supabase, { schoolId });
+        if (currentUser.role === 'teacher') {
+          const tr = remote?.teachers || [];
+          const byTeacherId = tr.find((t) => t.id === currentUser.id);
+          const byAuthUserId = tr.find((t) => t.userId === currentUser.authUserId);
+          const byEmail = tr.find((t) => normalizeEmail(t.email) === normalizeEmail(currentUser.email));
+          const t = byTeacherId || byAuthUserId || byEmail || null;
+          if (t && t.id !== currentUser.id) {
+            setCurrentUser((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    id: t.id,
+                    schoolId: t.schoolId || prev.schoolId || null,
+                    subject: t.subject || prev.subject || '',
+                    email: prev.email || t.email || '',
+                  }
+                : prev
             );
-            const t = byTeacherId || byAuthUserId || byEmail || null;
-            if (t && t.id !== currentUser.id) {
-              const subjectName =
-                (remoteRaw?.subjects || []).find((s2) => s2.id === t.subject_id)?.name || currentUser.subject || '';
-              setCurrentUser((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      id: t.id,
-                      schoolId: t.school_id || prev.schoolId || null,
-                      subject: subjectName,
-                      email: prev.email || t.email || '',
-                    }
-                  : prev
-              );
-            }
           }
-          if (currentUser.role === 'student') {
-            const byStudentId = (remoteRaw?.students || []).find((st) => st.id === currentUser.id);
-            const byAuthUserId = (remoteRaw?.students || []).find((st) => st.user_id === currentUser.authUserId);
-            const byEmail = (remoteRaw?.students || []).find(
-              (st) => normalizeEmail(st.email) === normalizeEmail(currentUser.email)
+        }
+        if (currentUser.role === 'student') {
+          const sr = remote?.students || [];
+          const byStudentId = sr.find((st) => st.id === currentUser.id);
+          const byAuthUserId = sr.find((st) => st.userId === currentUser.authUserId);
+          const byEmail = sr.find((st) => normalizeEmail(st.email) === normalizeEmail(currentUser.email));
+          const st = byStudentId || byAuthUserId || byEmail || null;
+          if (st && st.id !== currentUser.id) {
+            setCurrentUser((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    id: st.id,
+                    schoolId: st.schoolId || prev.schoolId || null,
+                    classId: st.classId || prev.classId || null,
+                    email: prev.email || st.email || '',
+                  }
+                : prev
             );
-            const st = byStudentId || byAuthUserId || byEmail || null;
-            if (st && st.id !== currentUser.id) {
-              setCurrentUser((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      id: st.id,
-                      schoolId: st.school_id || prev.schoolId || null,
-                      classId: st.class_id || prev.classId || null,
-                      email: prev.email || st.email || '',
-                    }
-                  : prev
-              );
-            }
           }
-          if (!currentUser.schoolId && currentUser.role === 'school') {
-            const inferredSchoolId =
-              remoteRaw?.classes?.[0]?.school_id ||
-              remoteRaw?.teachers?.[0]?.school_id ||
-              remoteRaw?.students?.[0]?.school_id ||
-              null;
-            if (inferredSchoolId) {
-              setCurrentUser((prev) => (prev ? { ...prev, schoolId: inferredSchoolId } : prev));
-            }
+        }
+        if (!currentUser.schoolId && currentUser.role === 'school') {
+          const inferredSchoolId = remote?.teachers?.[0]?.schoolId || remote?.students?.[0]?.schoolId || null;
+          if (inferredSchoolId) {
+            setCurrentUser((prev) => (prev ? { ...prev, schoolId: inferredSchoolId } : prev));
           }
-        } else {
-          remote = await repo.loadSchoolData(supabase, { schoolId });
         }
         if (!cancelled) {
           setData(remote);
@@ -496,24 +349,25 @@ export const SchoolProvider = ({ children }) => {
       return { success: false, role: null };
     }
 
-    // Single strict login path: frontend -> backend /api/auth/login.
-    // No fallback when API fails; user must stay logged out.
     try {
-      const auth = await schoolApi.loginApi(normalizedEmail, password);
-      await supabase.auth.setSession({
-        access_token: auth.access_token,
-        refresh_token: auth.refresh_token,
-      });
+      await authService.signInWithPassword(supabase, normalizedEmail, password);
       const { data: verify } = await supabase.auth.getSession();
       if (!verify?.session?.user) {
         throw new Error('Session was not saved. Allow site storage / disable strict blocking.');
       }
-      // Use `user` from login response (server already runs resolveCurrentUser).
-      let nextUser = auth.user ? { ...auth.user } : null;
+      let nextUser = await resolveCurrentUser(supabase, verify.session.user);
+      if (!nextUser) {
+        nextUser = buildMinimalUserFromSession(verify.session.user);
+      }
       if (!nextUser?.role) {
         const inferred = inferPortalRoleFromEmail(normalizedEmail);
         if (inferred) {
-          nextUser = { ...(nextUser || {}), role: inferred };
+          nextUser = {
+            ...(nextUser || {}),
+            role: inferred,
+            authUserId: verify.session.user.id,
+            email: verify.session.user.email || normalizedEmail,
+          };
         }
       }
       if (!nextUser?.role) {
@@ -589,13 +443,7 @@ export const SchoolProvider = ({ children }) => {
       if (currentUser?.role === 'school' && currentUser.schoolId) {
         payload.schoolId = currentUser.schoolId;
       }
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        await schoolApi.insertTeacherApi(token, payload);
-      } else {
-        await repo.insertTeacher(supabase, payload);
-      }
+      await repo.insertTeacher(supabase, payload);
       await refreshData();
       return { error: null };
     } catch (err) {
@@ -609,13 +457,7 @@ export const SchoolProvider = ({ children }) => {
     const sessionErr = await ensureRealSession();
     if (sessionErr) return { error: sessionErr };
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        await schoolApi.deleteTeacherApi(token, id);
-      } else {
-        await repo.deleteTeacher(supabase, id);
-      }
+      await repo.deleteTeacher(supabase, id);
       await refreshData();
       return { error: null };
     } catch (err) {
@@ -650,10 +492,8 @@ export const SchoolProvider = ({ children }) => {
           return byId || byName || byNum;
         });
         if (localMatch?.id) return localMatch.id;
-        if (isApiLayerEnabled() && schoolIdForClass) {
-          const token = await getAccessToken();
-          if (!token) return null;
-          const classIdMap = await schoolApi.fetchClassIdMapApi(token, schoolIdForClass);
+        if (schoolIdForClass) {
+          const classIdMap = await repo.fetchClassIdMap(supabase, schoolIdForClass);
           const entries = Array.from(classIdMap.entries());
           const mapMatch = entries.find(([name]) => {
             const byName = String(name || '').trim().toLowerCase() === raw.toLowerCase();
@@ -665,13 +505,7 @@ export const SchoolProvider = ({ children }) => {
         return null;
       };
       try {
-        if (isApiLayerEnabled()) {
-          const t = await getAccessToken();
-          if (!t) return { error: 'Your session has expired. Please sign in again.' };
-          if (schoolIdForClass) {
-            await schoolApi.insertClassApi(t, schoolIdForClass, String(student.class));
-          }
-        } else if (schoolIdForClass) {
+        if (schoolIdForClass) {
           await repo.insertClass(supabase, { schoolId: schoolIdForClass, className: String(student.class) });
         }
       } catch (classErr) {
@@ -681,11 +515,7 @@ export const SchoolProvider = ({ children }) => {
       if (!payload.classId) {
         return { error: 'Class could not be resolved. Please select a valid class.' };
       }
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        await schoolApi.insertStudentApi(token, payload);
-      } else {
+      {
         const sid = payload.schoolId;
         const classIdMap = await repo.fetchClassIdMap(supabase, sid);
         await repo.insertStudent(supabase, payload, classIdMap);
@@ -724,10 +554,8 @@ export const SchoolProvider = ({ children }) => {
           return byId || byName || byNum;
         });
         if (localMatch?.id) return localMatch.id;
-        if (isApiLayerEnabled() && schoolIdForClass) {
-          const token = await getAccessToken();
-          if (!token) return null;
-          const classIdMap = await schoolApi.fetchClassIdMapApi(token, schoolIdForClass);
+        if (schoolIdForClass) {
+          const classIdMap = await repo.fetchClassIdMap(supabase, schoolIdForClass);
           const entries = Array.from(classIdMap.entries());
           const mapMatch = entries.find(([name]) => {
             const byName = String(name || '').trim().toLowerCase() === raw.toLowerCase();
@@ -739,13 +567,7 @@ export const SchoolProvider = ({ children }) => {
         return null;
       };
       try {
-        if (isApiLayerEnabled()) {
-          const t = await getAccessToken();
-          if (!t) return { error: 'Your session has expired. Please sign in again.' };
-          if (schoolIdForClass) {
-            await schoolApi.insertClassApi(t, schoolIdForClass, String(student.class));
-          }
-        } else if (schoolIdForClass) {
+        if (schoolIdForClass) {
           await repo.insertClass(supabase, { schoolId: schoolIdForClass, className: String(student.class) });
         }
       } catch (classErr) {
@@ -755,11 +577,7 @@ export const SchoolProvider = ({ children }) => {
       if (!payload.classId) {
         return { error: 'Class could not be resolved. Please select a valid class.' };
       }
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        await schoolApi.updateStudentApi(token, id, payload);
-      } else {
+      {
         const sid = payload.schoolId;
         const classIdMap = await repo.fetchClassIdMap(supabase, sid);
         await repo.updateStudent(supabase, id, payload, classIdMap);
@@ -777,13 +595,7 @@ export const SchoolProvider = ({ children }) => {
     const sessionErr = await ensureRealSession();
     if (sessionErr) return { error: sessionErr };
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        await schoolApi.deleteStudentApi(token, id);
-      } else {
-        await repo.deleteStudent(supabase, id);
-      }
+      await repo.deleteStudent(supabase, id);
       await refreshData();
       return { error: null };
     } catch (err) {
@@ -801,16 +613,8 @@ export const SchoolProvider = ({ children }) => {
       return { error: 'Your account is not linked to a school.' };
     }
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        await schoolApi.insertTeacherClassAssignmentApi(token, teacherId, className, subject, schoolId);
-        setData((prev) => upsertTeacherClassAssignmentInData(prev, { teacherId, className, subject }));
-      } else {
-        const classIdMap = await repo.fetchClassIdMap(supabase, schoolId);
-        await repo.insertTeacherClassAssignment(supabase, teacherId, className, subject, classIdMap);
-        await refreshData();
-      }
+      await repo.insertTeacherClassAssignment(supabase, teacherId, className, subject, schoolId);
+      await refreshData();
       return { error: null };
     } catch (err) {
       const msg = err?.message || 'Failed to assign teacher.';
@@ -824,32 +628,15 @@ export const SchoolProvider = ({ children }) => {
     const schoolId = currentUser?.schoolId;
     if (!schoolId) return;
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return;
-        await schoolApi.updateTeacherClassAssignmentTeacherApi(
-          token,
-          oldTeacherId,
-          newTeacherId,
-          className,
-          subject,
-          schoolId
-        );
-        setData((prev) =>
-          upsertTeacherClassAssignmentInData(prev, { teacherId: newTeacherId, className, subject })
-        );
-      } else {
-        const classIdMap = await repo.fetchClassIdMap(supabase, schoolId);
-        await repo.updateTeacherClassAssignmentTeacher(
-          supabase,
-          oldTeacherId,
-          newTeacherId,
-          className,
-          subject,
-          classIdMap
-        );
-        await refreshData();
-      }
+      await repo.updateTeacherClassAssignmentTeacher(
+        supabase,
+        oldTeacherId,
+        newTeacherId,
+        className,
+        subject,
+        schoolId
+      );
+      await refreshData();
     } catch (err) {
       setAuthError(err?.message || 'Failed to update assignment.');
     }
@@ -897,15 +684,7 @@ export const SchoolProvider = ({ children }) => {
     if (!testPayload.classId) return { error: 'Please select or assign a class before creating a test.' };
     if (!createdBy) return { error: 'Teacher identity is missing. Please sign in again.' };
     try {
-      let newId = null;
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        const res = await schoolApi.createTestRecordApi(token, testPayload, createdBy);
-        newId = res?.id ?? null;
-      } else {
-        newId = await repo.createTestRecord(supabase, testPayload, { createdByTeacherId: createdBy });
-      }
+      const newId = await repo.createTestRecord(supabase, testPayload, { createdByTeacherId: createdBy });
       await refreshData();
       return { error: null, id: newId };
     } catch (err) {
@@ -918,13 +697,7 @@ export const SchoolProvider = ({ children }) => {
   const removeTest = async (id) => {
     if (!supabase || currentUser?.isDemo) return;
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return;
-        await schoolApi.deleteTestApi(token, id);
-      } else {
-        await repo.deleteTest(supabase, id);
-      }
+      await repo.deleteTest(supabase, id);
       await refreshData();
     } catch (err) {
       setAuthError(err?.message || 'Failed to remove test.');
@@ -936,13 +709,7 @@ export const SchoolProvider = ({ children }) => {
     if (!test) return;
     if (!supabase || currentUser?.isDemo) return;
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return;
-        await schoolApi.insertScoreApi(token, studentId, testId, scoreData);
-      } else {
-        await repo.insertScore(supabase, studentId, testId, scoreData);
-      }
+      await repo.insertScore(supabase, studentId, testId, scoreData);
       await refreshData();
     } catch (err) {
       setAuthError(err?.message || 'Failed to add score.');
@@ -952,13 +719,7 @@ export const SchoolProvider = ({ children }) => {
   const updateScore = async (studentId, scoreId, newScore) => {
     if (!supabase || currentUser?.isDemo) return;
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return;
-        await schoolApi.updateScoreValueApi(token, scoreId, newScore);
-      } else {
-        await repo.updateScoreValue(supabase, scoreId, newScore);
-      }
+      await repo.updateScoreValue(supabase, scoreId, newScore);
       await refreshData();
     } catch (err) {
       setAuthError(err?.message || 'Failed to update score.');
@@ -978,13 +739,7 @@ export const SchoolProvider = ({ children }) => {
         storagePath,
         analysis,
       };
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return;
-        await schoolApi.insertTestAnalysisRowApi(token, row);
-      } else {
-        await repo.insertTestAnalysisRow(supabase, row);
-      }
+      await repo.insertTestAnalysisRow(supabase, row);
       await refreshData();
     } catch (err) {
       setAuthError(err?.message || 'Failed to save test analysis.');
@@ -1001,13 +756,7 @@ export const SchoolProvider = ({ children }) => {
     try {
       let studentId = payload.studentId || null;
       if (!studentId && payload.rollNo && payload.classId) {
-        if (isApiLayerEnabled()) {
-          const token = await getAccessToken();
-          if (!token) return null;
-          studentId = await schoolApi.findStudentIdByRollNoApi(token, payload.rollNo, payload.classId);
-        } else {
-          studentId = await repo.findStudentIdByRollNo(supabase, payload.rollNo, payload.classId);
-        }
+        studentId = await repo.findStudentIdByRollNo(supabase, payload.rollNo, payload.classId);
       }
       const row = {
         testId: payload.testId,
@@ -1017,11 +766,6 @@ export const SchoolProvider = ({ children }) => {
         storagePath: payload.storagePath || '',
         teacherId: currentUser.id,
       };
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return null;
-        return await schoolApi.insertAnswerSheetApi(token, row);
-      }
       return await repo.insertAnswerSheet(supabase, row);
     } catch (err) {
       setAuthError(err?.message || 'Failed to save answer sheet.');
@@ -1036,11 +780,6 @@ export const SchoolProvider = ({ children }) => {
   const getAnswerSheetsByTest = async (testId) => {
     if (!supabase || currentUser?.isDemo) return [];
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return [];
-        return await schoolApi.fetchAnswerSheetsByTestApi(token, testId);
-      }
       return await repo.fetchAnswerSheetsByTest(supabase, testId);
     } catch (err) {
       setAuthError(err?.message || 'Failed to fetch answer sheets.');
@@ -1063,18 +802,9 @@ export const SchoolProvider = ({ children }) => {
         ...evalData,
         gradedByTeacherId: teacherId,
       };
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return;
-        await schoolApi.saveEvaluationApi(token, studentId, testId, payload);
-        if (evalData.answerSheetId) {
-          await schoolApi.updateAnswerSheetStatusApi(token, evalData.answerSheetId, 'evaluated');
-        }
-      } else {
-        await repo.saveEvaluation(supabase, studentId, testId, payload);
-        if (evalData.answerSheetId) {
-          await repo.updateAnswerSheetStatus(supabase, evalData.answerSheetId, 'evaluated');
-        }
+      await repo.saveEvaluation(supabase, studentId, testId, payload);
+      if (evalData.answerSheetId) {
+        await repo.updateAnswerSheetStatus(supabase, evalData.answerSheetId, 'evaluated');
       }
       await refreshData();
     } catch (err) {
@@ -1292,13 +1022,7 @@ export const SchoolProvider = ({ children }) => {
   const assignStudentsToTeacher = async (studentIds, teacherId) => {
     if (!supabase) return;
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return;
-        await schoolApi.assignStudentsToTeacherApi(token, studentIds, teacherId);
-      } else {
-        await repo.assignStudentsToTeacher(supabase, studentIds, teacherId);
-      }
+      await repo.assignStudentsToTeacher(supabase, studentIds, teacherId);
       await refreshData();
     } catch (err) {
       setAuthError(err?.message || 'Failed to assign students.');
@@ -1308,13 +1032,7 @@ export const SchoolProvider = ({ children }) => {
   const assignStudentToTeacherBySubject = async (studentId, teacherId, subject) => {
     if (!supabase) return { error: 'Supabase is not configured.' };
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        await schoolApi.upsertStudentSubjectTeacherAssignmentApi(token, studentId, teacherId, subject);
-      } else {
-        await repo.upsertStudentSubjectTeacherAssignment(supabase, { studentId, teacherId, subject });
-      }
+      await repo.upsertStudentSubjectTeacherAssignment(supabase, { studentId, teacherId, subject });
       await refreshData();
       return { error: null };
     } catch (err) {
@@ -1329,15 +1047,20 @@ export const SchoolProvider = ({ children }) => {
     if (currentUser?.role !== 'admin') return { error: 'Only admins can create schools.', school: null };
     const trimmed = (name || '').trim();
     if (!trimmed) return { error: 'School name is required.', school: null };
+    const adminEmail = String(schoolAdminEmail || '').trim().toLowerCase();
+    if (!adminEmail) {
+      return {
+        error:
+          'School admin email is required. Without it, created_by is not set and the school portal cannot load data (RLS).',
+        school: null,
+      };
+    }
     try {
-      let school = null;
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.', school: null };
-        school = await schoolApi.createSchoolApi(token, trimmed, schoolAdminEmail, schoolAdminName);
-      } else {
-        school = await repo.insertSchool(supabase, { name: trimmed });
-      }
+      const school = await repo.insertSchool(supabase, {
+        name: trimmed,
+        schoolAdminEmail: adminEmail,
+        schoolAdminName,
+      });
       await refreshData();
       return { error: null, school };
     } catch (err) {
@@ -1347,19 +1070,29 @@ export const SchoolProvider = ({ children }) => {
     }
   };
 
+  const assignSchoolPortalOwner = async (schoolId, schoolAdminEmail) => {
+    if (!supabase) return { error: 'Supabase is not configured.' };
+    if (currentUser?.role !== 'admin') return { error: 'Only admins can assign school owners.' };
+    const sessionErr = await ensureRealSession();
+    if (sessionErr) return { error: sessionErr };
+    try {
+      await repo.assignSchoolPortalOwner(supabase, { schoolId, schoolAdminEmail });
+      await refreshData();
+      return { error: null };
+    } catch (err) {
+      const msg = err?.message || 'Failed to set school portal owner.';
+      setAuthError(msg);
+      return { error: msg };
+    }
+  };
+
   const deleteSchool = async (schoolId) => {
     if (!supabase) return { error: 'Supabase is not configured.' };
     if (currentUser?.role !== 'admin') return { error: 'Only admins can delete schools.' };
     const id = String(schoolId || '').trim();
     if (!id) return { error: 'School id is required.' };
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        await schoolApi.deleteSchoolApi(token, id);
-      } else {
-        await repo.deleteSchool(supabase, id);
-      }
+      await repo.deleteSchool(supabase, id);
       await refreshData();
       return { error: null };
     } catch (err) {
@@ -1383,7 +1116,7 @@ export const SchoolProvider = ({ children }) => {
     // Fallback for legacy seed school users that are role-mapped but not directly linked.
     if (!targetSchoolId && currentUser?.role === 'school') {
       try {
-        const schools = await schoolApi.fetchSchoolsList();
+        const schools = await repo.listSchools(supabase);
         if ((schools || []).length === 1) {
           targetSchoolId = schools[0].id;
           setCurrentUser((prev) => (prev ? { ...prev, schoolId: targetSchoolId, schoolName: schools[0].name } : prev));
@@ -1398,13 +1131,7 @@ export const SchoolProvider = ({ children }) => {
       return { error: msg };
     }
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        await schoolApi.insertClassApi(token, targetSchoolId, String(className));
-      } else {
-        await repo.insertClass(supabase, { schoolId: targetSchoolId, className: String(className) });
-      }
+      await repo.insertClass(supabase, { schoolId: targetSchoolId, className: String(className) });
       await refreshData();
       return { error: null };
     } catch (err) {
@@ -1419,7 +1146,7 @@ export const SchoolProvider = ({ children }) => {
     let targetSchoolId = currentUser?.schoolId || null;
     if (!targetSchoolId && currentUser?.role === 'school') {
       try {
-        const schools = await schoolApi.fetchSchoolsList();
+        const schools = await repo.listSchools(supabase);
         if ((schools || []).length === 1) {
           targetSchoolId = schools[0].id;
           setCurrentUser((prev) => (prev ? { ...prev, schoolId: targetSchoolId, schoolName: schools[0].name } : prev));
@@ -1434,17 +1161,11 @@ export const SchoolProvider = ({ children }) => {
       return { error: msg };
     }
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        await schoolApi.updateClassApi(token, classId, targetSchoolId, String(newClassLabel));
-      } else {
-        await repo.updateClass(supabase, {
-          schoolId: targetSchoolId,
-          classId,
-          className: String(newClassLabel),
-        });
-      }
+      await repo.updateClass(supabase, {
+        schoolId: targetSchoolId,
+        classId,
+        className: String(newClassLabel),
+      });
       await refreshData();
       return { error: null };
     } catch (err) {
@@ -1459,7 +1180,7 @@ export const SchoolProvider = ({ children }) => {
     let targetSchoolId = currentUser?.schoolId || null;
     if (!targetSchoolId && currentUser?.role === 'school') {
       try {
-        const schools = await schoolApi.fetchSchoolsList();
+        const schools = await repo.listSchools(supabase);
         if ((schools || []).length === 1) {
           targetSchoolId = schools[0].id;
           setCurrentUser((prev) => (prev ? { ...prev, schoolId: targetSchoolId, schoolName: schools[0].name } : prev));
@@ -1474,13 +1195,7 @@ export const SchoolProvider = ({ children }) => {
       return { error: msg };
     }
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        await schoolApi.deleteClassApi(token, classId, targetSchoolId);
-      } else {
-        await repo.deleteClass(supabase, { schoolId: targetSchoolId, classId });
-      }
+      await repo.deleteClass(supabase, { schoolId: targetSchoolId, classId });
       await refreshData();
       return { error: null };
     } catch (err) {
@@ -1505,13 +1220,7 @@ export const SchoolProvider = ({ children }) => {
     const name = String(subjectName || '').trim();
     if (!name) return { error: 'Subject name is required.' };
     try {
-      if (isApiLayerEnabled()) {
-        const token = await getAccessToken();
-        if (!token) return { error: 'Your session has expired. Please sign in again.' };
-        await schoolApi.insertSubjectApi(token, schoolId, name);
-      } else {
-        return { error: 'Subject creation is available in API mode.' };
-      }
+      await repo.insertSubject(supabase, schoolId, name);
       await refreshData();
       return { error: null };
     } catch (err) {
@@ -1563,6 +1272,7 @@ export const SchoolProvider = ({ children }) => {
         deleteClass,
         addSubject,
         createSchool,
+        assignSchoolPortalOwner,
         deleteSchool,
       }}
     >

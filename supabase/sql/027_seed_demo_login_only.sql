@@ -106,8 +106,9 @@ values
   ('10000000-0000-0000-0000-000000000004', 'aarav.patel@student.com', 'student')
 on conflict do nothing;
 
+-- School portal user must be created_by so is_school_admin() passes RLS (admin still has full access via is_admin()).
 insert into public.schools (id, name, created_by)
-values ('20000000-0000-0000-0000-000000000001', 'Madavi Institute', '10000000-0000-0000-0000-000000000001')
+values ('20000000-0000-0000-0000-000000000001', 'Madavi Institute', '10000000-0000-0000-0000-000000000002')
 on conflict do nothing;
 
 insert into public.classes (id, school_id, name)

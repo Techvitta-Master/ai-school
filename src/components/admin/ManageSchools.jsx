@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Building2, Plus, AlertCircle, CheckCircle, Trash2 } from 'lucide-react';
 import { useSchool } from '../../context/SchoolContext';
-import { fetchSchoolsList } from '../../lib/schoolApi';
 import { supabase } from '../../lib/supabaseClient';
-import { isApiLayerEnabled } from '../../lib/apiConfig';
+import * as repo from '../../lib/schoolRepository';
 import { DeleteSchoolConfirmDialog } from './DeleteSchoolConfirmDialog';
 
 export default function ManageSchools() {
-  const { createSchool, deleteSchool } = useSchool();
+  const { createSchool, deleteSchool, assignSchoolPortalOwner } = useSchool();
   const [schools, setSchools] = useState([]);
   const [name, setName] = useState('');
   const [schoolAdminEmail, setSchoolAdminEmail] = useState('');
+  const [ownerEmailBySchoolId, setOwnerEmailBySchoolId] = useState({});
   const [loading, setLoading] = useState(false);
+  const [assigningId, setAssigningId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [schoolPendingDelete, setSchoolPendingDelete] = useState(null);
   const [error, setError] = useState('');
@@ -20,12 +21,8 @@ export default function ManageSchools() {
   const loadSchools = async () => {
     try {
       let rows = [];
-      if (isApiLayerEnabled()) {
-        rows = await fetchSchoolsList();
-      } else if (supabase) {
-        const { data, error } = await supabase.from('schools').select('id,name').order('name');
-        if (error) throw error;
-        rows = data || [];
+      if (supabase) {
+        rows = await repo.listSchools(supabase);
       }
       setSchools(rows || []);
     } catch {
@@ -34,16 +31,21 @@ export default function ManageSchools() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch
     loadSchools();
   }, []);
 
   const onSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
-    setLoading(true);
     setError('');
     setSuccess('');
     const normalizedAdminEmail = String(schoolAdminEmail || '').trim().toLowerCase();
+    if (!normalizedAdminEmail) {
+      setError('School login email is required so the school portal can load data (database ownership).');
+      return;
+    }
+    setLoading(true);
     const result = await createSchool(name, normalizedAdminEmail, `${name.trim()} Admin`);
     setLoading(false);
     if (result?.error) {
@@ -70,6 +72,27 @@ export default function ManageSchools() {
     }
     setSchoolPendingDelete(null);
     setSuccess(`“${s.name}” removed.`);
+    await loadSchools();
+  };
+
+  const onAssignOwner = async (schoolId) => {
+    const email = String(ownerEmailBySchoolId[schoolId] || '').trim().toLowerCase();
+    if (!email) {
+      setError('Enter the school portal login email (must exist in Auth + public.users).');
+      return;
+    }
+    setError('');
+    setSuccess('');
+    setAssigningId(schoolId);
+    const result = await assignSchoolPortalOwner(schoolId, email);
+    setAssigningId(null);
+    if (result?.error) {
+      setError(result.error);
+      return;
+    }
+    const name = schools.find((x) => x.id === schoolId)?.name || 'School';
+    setSuccess(`Portal owner set for “${name}”. Sign in again as that school user.`);
+    setOwnerEmailBySchoolId((prev) => ({ ...prev, [schoolId]: '' }));
     await loadSchools();
   };
 
@@ -136,18 +159,49 @@ export default function ManageSchools() {
         </div>
         <div className="divide-y divide-gray-100">
           {schools.length ? schools.map((s) => (
-            <div key={s.id} className="px-6 py-4 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
+            <div key={s.id} className="px-6 py-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex items-start gap-3 min-w-0 flex-1">
                 <div className="w-9 h-9 bg-indigo-100 rounded-lg flex items-center justify-center shrink-0">
                   <Building2 className="w-4 h-4 text-indigo-600" />
                 </div>
-                <div className="font-medium text-slate-800 truncate">{s.name}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-slate-800 truncate">{s.name}</div>
+                  {!s.created_by ? (
+                    <div className="mt-2 space-y-2">
+                      <p className="text-xs text-amber-700">
+                        No portal owner — the school dashboard cannot load data until this is set (same email as the
+                        school login in Auth).
+                      </p>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <input
+                          type="email"
+                          value={ownerEmailBySchoolId[s.id] ?? ''}
+                          onChange={(e) =>
+                            setOwnerEmailBySchoolId((prev) => ({ ...prev, [s.id]: e.target.value }))
+                          }
+                          placeholder="school@example.com"
+                          className="min-w-[200px] flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => onAssignOwner(s.id)}
+                          disabled={assigningId === s.id}
+                          className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-60"
+                        >
+                          {assigningId === s.id ? 'Saving…' : 'Set portal owner'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 mt-0.5">Portal linked (school portal can load data).</p>
+                  )}
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setSchoolPendingDelete({ id: s.id, name: s.name })}
                 disabled={deletingId === s.id}
-                className="shrink-0 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-xl border border-transparent hover:border-red-200 disabled:opacity-50 flex items-center gap-1"
+                className="shrink-0 self-start px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-xl border border-transparent hover:border-red-200 disabled:opacity-50 flex items-center gap-1"
               >
                 <Trash2 className="w-4 h-4" />
                 {deletingId === s.id ? 'Removing…' : 'Delete'}

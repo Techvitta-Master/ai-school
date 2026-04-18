@@ -1,9 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSchool } from '../../context/SchoolContext';
-import { createAndEvaluate } from '../../lib/evaluationService';
-import { isApiLayerEnabled } from '../../lib/apiConfig';
-import { uploadAndEvaluateApi } from '../../lib/schoolApi';
+import { persistDummyEvaluation } from '../../lib/evaluationService';
 import {
   Upload, Sparkles, CheckCircle, AlertCircle,
   User, Loader2, RotateCcw, TrendingUp, TrendingDown, ClipboardList,
@@ -143,57 +141,43 @@ export default function UploadAnalyze() {
       const test = allTests.find(t => t.id === selectedTestId);
 
       let evaluation;
-      if (isApiLayerEnabled()) {
-        if (!supabase) {
-          setUploadError('Supabase Auth is not configured.');
-          setUploading(false);
-          return;
-        }
-        const { data: sessionData } = await supabase.auth.getSession();
-        const token = sessionData?.session?.access_token;
-        if (!token) {
-          setUploadError('Your session has expired. Please sign in again.');
-          setUploading(false);
-          return;
-        }
-        const fd = new FormData();
-        fd.append('file', selectedFile);
-        fd.append('testId', selectedTestId);
-        fd.append('studentId', student.id);
-        fd.append('rollNo', String(student.rollNo ?? ''));
-        if (test) fd.append('testJson', JSON.stringify(test));
-        evaluation = await uploadAndEvaluateApi(token, fd);
-      } else {
-        // Upload file to Storage (best-effort; evaluation proceeds even if bucket is absent)
-        let storagePath = '';
-        if (supabase) {
-          const safeName = selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-          storagePath = `sheets/${teacherId || currentUser?.id || 'anon'}/roll${student.rollNo ?? 'x'}-${Date.now()}-${safeName}`;
-
-          const { error: uploadErr } = await supabase.storage
-            .from('answer-sheets')
-            .upload(storagePath, selectedFile, { contentType: selectedFile.type || undefined, upsert: true });
-
-          if (uploadErr) {
-            console.warn('[upload] Storage skipped:', uploadErr.message);
-            storagePath = '';
-          }
-        }
-
-        if (!supabase) {
-          setUploadError('Supabase is not configured.');
-          setUploading(false);
-          return;
-        }
-        evaluation = await createAndEvaluate(supabase, {
-          testId: selectedTestId,
-          studentId: student.id,
-          teacherId: teacherId || currentUser?.id,
-          storagePath,
-          test,
-          student,
-        });
+      if (!supabase) {
+        setUploadError('Supabase is not configured.');
+        setUploading(false);
+        return;
       }
+      let storagePath = '';
+      const safeName = selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      storagePath = `sheets/${teacherId || currentUser?.id || 'anon'}/roll${student.rollNo ?? 'x'}-${Date.now()}-${safeName}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from('answer-sheets')
+        .upload(storagePath, selectedFile, { contentType: selectedFile.type || undefined, upsert: true });
+
+      if (uploadErr) {
+        console.warn('[upload] Storage skipped:', uploadErr.message);
+        storagePath = '';
+      }
+
+      const topics = Array.isArray(test?.topics) ? test.topics : [];
+      const totalMarksRaw = Number(test?.totalMarks);
+      const totalMarks = Number.isFinite(totalMarksRaw) && totalMarksRaw > 0 ? totalMarksRaw : 100;
+
+      const evalCore = await persistDummyEvaluation(supabase, {
+        studentId: student.id,
+        testId: selectedTestId,
+        topics,
+        totalMarks,
+      });
+      evaluation = {
+        ...evalCore,
+        testId: selectedTestId,
+        testName: test?.title || '',
+        studentId: student.id,
+        studentName: student.name,
+        fileName: selectedFile.name,
+        storagePath,
+      };
 
       // Refresh school-wide data so student dashboard updates immediately
       await refreshData();

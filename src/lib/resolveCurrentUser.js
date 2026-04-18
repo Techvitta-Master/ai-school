@@ -26,18 +26,32 @@ export async function resolveCurrentUser(supabase, user) {
       .maybeSingle(),
   ]);
 
-  const role = String(userRow?.role || user.user_metadata?.role || '').toLowerCase();
+  let role = String(userRow?.role || user.user_metadata?.role || '').toLowerCase();
+  if (!role && teacherByUid) role = 'teacher';
+  if (!role && studentByUid) role = 'student';
 
-  if (role === 'school') {
-    let { data: schoolRow } = await supabase
+  let ownedSchools = [];
+  if (!role || role === 'school') {
+    const { data: ownedSchoolsRaw } = await supabase
       .from('schools')
       .select('id, name')
       .eq('created_by', user.id)
-      .maybeSingle();
+      .order('created_at');
+    ownedSchools = ownedSchoolsRaw ?? [];
+  }
+
+  if (!role && ownedSchools.length) role = 'school';
+
+  if (!role) {
+    return null;
+  }
+
+  if (role === 'school') {
+    let schoolRow = ownedSchools[0] ?? null;
     if (!schoolRow) {
-      const { data: schools } = await supabase.from('schools').select('id, name').order('created_at');
-      if ((schools || []).length === 1) {
-        schoolRow = schools[0];
+      const { data: allSchools } = await supabase.from('schools').select('id, name').order('created_at');
+      if ((allSchools || []).length === 1) {
+        schoolRow = allSchools[0];
       }
     }
     return {
@@ -80,5 +94,5 @@ export async function resolveCurrentUser(supabase, user) {
     };
   }
 
-  return { role: 'admin', id: 'admin', name: name || 'School Admin', authUserId, email };
+  return null;
 }

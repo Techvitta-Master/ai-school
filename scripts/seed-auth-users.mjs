@@ -70,6 +70,8 @@ try {
   for (const u of users) {
     await ensureUser(u);
   }
+  const { error: syncErr } = await admin.rpc('sync_public_users_from_auth');
+  if (syncErr) throw syncErr;
   console.log('Auth seed complete.');
 } catch (err) {
   console.error('Auth seed failed:', err?.message || err);

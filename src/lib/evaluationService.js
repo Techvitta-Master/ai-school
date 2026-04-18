@@ -1,19 +1,8 @@
 /**
- * evaluationService.js
  * Dummy evaluation engine — does NOT call any AI API.
- * Produces a full RCA-shaped result (per-question scores, topic analysis,
- * improvement plan) that is forward-compatible with a real OCR+LLM evaluator.
- *
- * Results are written to:
- *   • `scores`      — score, grade, feedback, topic_scores (backward-compat)
- *   • `evaluations` — full details jsonb (requires migration 019)
- *   • `answer_sheets.status` — set to 'evaluated'
- *
- * DB helpers take a SupabaseClient as the first argument so the same logic runs
- * in the browser (direct PostgREST) or on the Node API (JWT-scoped client).
+ * Persists marks into `results` only (normalized schema).
  */
-
-// ─── Templates ────────────────────────────────────────────────────────────────
+import { upsertResult } from '../services/schoolService.js';
 
 const GRADE_FEEDBACK = {
   'A+': [
@@ -87,8 +76,6 @@ const WEAK_REASONS = [
   'Confused with a related concept — review side-by-side.',
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -102,32 +89,24 @@ function deriveGrade(score) {
   return 'D';
 }
 
-// ─── Core dummy RCA builder ───────────────────────────────────────────────────
-
 /**
  * Builds a full RCA evaluation result with no DB interaction.
- * Exported for unit testing.
- *
- * @param {string[]} topics       Topics from the test syllabus.
- * @param {number}   totalMarks   Max marks for the test (default 100).
- * @returns RCA-shaped evaluation object.
+ * @param {string[]} topics
+ * @param {number} totalMarks
  */
 export function buildEvaluation(topics = [], totalMarks = 100) {
   const NUM_QUESTIONS = 5;
   const effectiveTopics = topics.length > 0 ? topics : ['General'];
 
-  // Overall marks: random 55–95
   const marks = Math.floor(Math.random() * 41) + 55;
   const grade = deriveGrade(marks);
 
-  // Per-question scoring
   const maxPerQ = Math.floor(totalMarks / NUM_QUESTIONS);
 
   const perQuestionScores = Array.from({ length: NUM_QUESTIONS }, (_, i) => {
     const topic = effectiveTopics[i % effectiveTopics.length];
     const max = maxPerQ;
 
-    // Bias scored around the overall percentage with ±15% variance
     const bias = (marks / 100) * max;
     const variance = max * 0.15;
     const scored = Math.min(
@@ -145,7 +124,6 @@ export function buildEvaluation(topics = [], totalMarks = 100) {
     return { q: `Q${i + 1}`, topic, max, scored, remark };
   });
 
-  // Aggregate per-topic
   const topicMap = {};
   perQuestionScores.forEach(({ topic, max, scored }) => {
     if (!topicMap[topic]) topicMap[topic] = { totalMax: 0, totalScored: 0 };
@@ -163,7 +141,6 @@ export function buildEvaluation(topics = [], totalMarks = 100) {
     }
   });
 
-  // Flat topic→score map kept for backward compat with scores.topic_scores
   const topicScores = Object.fromEntries(
     Object.entries(topicMap).map(([topic, { totalMax, totalScored }]) => [
       topic,
@@ -171,7 +148,6 @@ export function buildEvaluation(topics = [], totalMarks = 100) {
     ])
   );
 
-  // Improvement plan referencing weak topics (fall back to all topics if none are weak)
   const planTargets = topicRCA.weak.map((w) => w.topic);
   const fallback = effectiveTopics.slice(0, 2);
   const improvementPlan = [
@@ -186,162 +162,44 @@ export function buildEvaluation(topics = [], totalMarks = 100) {
   return { marks, grade, feedback, perQuestionScores, topicRCA, improvementPlan, topicScores };
 }
 
-// ─── DB-backed evaluation functions ──────────────────────────────────────────
-
 /**
- * Generates a dummy evaluation and persists it to Supabase.
- *
- * Writes to:
- *   • scores       — score, grade, feedback, topic_scores
- *   • evaluations  — marks, grade, feedback, full details jsonb
- *   • answer_sheets — status = 'evaluated'
- *
- * @param {import('@supabase/supabase-js').SupabaseClient} supabase
- * @param {string | null} answerSheetId
- * @param {{ studentId?: string, testId?: string, topics?: string[], totalMarks?: number }} params
- * @returns Full RCA evaluation object.
+ * Runs dummy evaluation and upserts `results` (same behavior as former Express route).
  */
-export async function evaluateAnswerSheet(
-  supabase,
-  answerSheetId,
-  { studentId, testId, teacherId = null, topics = [], totalMarks = 100 } = {}
-) {
+export async function persistDummyEvaluation(supabase, { studentId, testId, topics = [], totalMarks = 100 }) {
   if (!supabase) throw new Error('Supabase is not configured.');
-
   const evaluation = buildEvaluation(topics, totalMarks);
-  const { marks, grade, feedback, topicScores, perQuestionScores, topicRCA, improvementPlan } = evaluation;
+  const marks = Number(evaluation.marks) || 0;
+  const percentage = Number(((marks / totalMarks) * 100).toFixed(2));
 
-  if (studentId && testId) {
-    const { error } = await supabase.from('scores').insert(
-      {
-        student_id: studentId,
-        test_id: testId,
-        answer_sheet_id: answerSheetId || null,
-        score: marks,
-        topic_scores: topicScores,
-        feedback,
-        grade,
-        graded_by_teacher_id: teacherId,
-      }
-    );
-    if (error) throw error;
-  }
+  await upsertResult(supabase, studentId, testId, { marks, percentage });
 
-  if (answerSheetId) {
-    // Write full details. Some environments may miss a unique constraint on
-    // evaluations.answer_sheet_id, which breaks PostgREST upsert(onConflict).
-    // Fallback to update/insert path so evaluation still succeeds.
-    const evalPayload = {
-      answer_sheet_id: answerSheetId,
-      marks,
-      grade,
-      feedback,
-      details: { perQuestionScores, topicRCA, improvementPlan },
-    };
-    let { error: evalErr } = await supabase
-      .from('evaluations')
-      .upsert(evalPayload, { onConflict: 'answer_sheet_id' });
-
-    if (
-      evalErr &&
-      /no unique or exclusion constraint matching the ON CONFLICT specification/i.test(
-        String(evalErr.message || '')
-      )
-    ) {
-      const { data: existingEval, error: lookupErr } = await supabase
-        .from('evaluations')
-        .select('id')
-        .eq('answer_sheet_id', answerSheetId)
-        .maybeSingle();
-      if (!lookupErr && existingEval?.id) {
-        const { error: updateErr } = await supabase
-          .from('evaluations')
-          .update(evalPayload)
-          .eq('id', existingEval.id);
-        evalErr = updateErr || null;
-      } else if (!lookupErr) {
-        const { error: insertErr } = await supabase.from('evaluations').insert(evalPayload);
-        evalErr = insertErr || null;
-      } else {
-        evalErr = lookupErr;
-      }
-    }
-
-    if (evalErr) {
-      console.warn('[eval] evaluations write failed:', evalErr.message);
-    }
-
-    await supabase.from('answer_sheets').update({ status: 'evaluated' }).eq('id', answerSheetId);
-  }
-
-  return evaluation;
+  return {
+    marks,
+    grade: evaluation.grade,
+    feedback: evaluation.feedback,
+    perQuestionScores: evaluation.perQuestionScores,
+    topicRCA: evaluation.topicRCA,
+    improvementPlan: evaluation.improvementPlan,
+    topicScores: evaluation.topicScores,
+  };
 }
 
-/**
- * Creates an answer_sheet record then immediately evaluates it.
- *
- * @param {import('@supabase/supabase-js').SupabaseClient} supabase
- * @param {{ testId, studentId, teacherId, storagePath?, test?, student? }} params
- * @returns {{ answerSheetId, marks, grade, feedback, perQuestionScores, topicRCA, improvementPlan, topicScores }}
- */
-export async function createAndEvaluate(
-  supabase,
-  {
-    testId,
-    studentId,
-    teacherId,
-    storagePath = '',
-    test = null,
-  }
-) {
-  if (!supabase) throw new Error('Supabase is not configured.');
-
-  const topics = Array.isArray(test?.topics) ? test.topics : [];
-  const totalMarks = test?.totalMarks ?? 100;
-
-  const { data: sheet, error: sheetErr } = await supabase
-    .from('answer_sheets')
-    .insert({
-      test_id: testId,
-      student_id: studentId,
-      uploaded_by_teacher_id: teacherId,
-      storage_path: storagePath,
-      bucket: storagePath ? 'answer-sheets' : '',
-      status: 'processing',
-    })
-    .select('id')
-    .single();
-
-  if (sheetErr) throw sheetErr;
-
-  const evaluation = await evaluateAnswerSheet(supabase, sheet.id, {
-    studentId,
-    testId,
-    teacherId,
-    topics,
-    totalMarks,
-  });
-  return { answerSheetId: sheet.id, ...evaluation };
-}
-
-/**
- * Fetches all evaluations for a student, including full RCA details.
- * Joins answer_sheets → tests and evaluations so the caller gets everything
- * needed to render a report card in a single call.
- *
- * @param {import('@supabase/supabase-js').SupabaseClient} supabase
- * @param {string} studentId
- * @returns {Array}
- */
 export async function getStudentEvaluations(supabase, studentId) {
   if (!supabase) return [];
-
   const { data, error } = await supabase
-    .from('scores')
-    .select('id, test_id, score, grade, feedback, topic_scores, graded_at, tests(title)')
+    .from('results')
+    .select('id, test_id, marks, percentage, created_at, tests(name)')
     .eq('student_id', studentId)
-    .order('graded_at', { ascending: false });
-
+    .order('created_at', { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  return (data || []).map((r) => ({
+    id: r.id,
+    test_id: r.test_id,
+    score: Number(r.marks) || 0,
+    grade: null,
+    feedback: null,
+    topic_scores: {},
+    graded_at: r.created_at,
+    tests: r.tests,
+  }));
 }
