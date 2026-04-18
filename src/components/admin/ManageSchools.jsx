@@ -3,7 +3,7 @@ import { Building2, Plus, AlertCircle, CheckCircle, Trash2 } from 'lucide-react'
 import { useSchool } from '../../context/SchoolContext';
 import { fetchSchoolsList } from '../../lib/schoolApi';
 import { supabase } from '../../lib/supabaseClient';
-import { useApiLayer } from '../../lib/apiConfig';
+import { isApiLayerEnabled } from '../../lib/apiConfig';
 
 export default function ManageSchools() {
   const { createSchool, deleteSchool } = useSchool();
@@ -18,7 +18,7 @@ export default function ManageSchools() {
   const loadSchools = async () => {
     try {
       let rows = [];
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         rows = await fetchSchoolsList();
       } else if (supabase) {
         const { data, error } = await supabase.from('schools').select('id,name').order('name');

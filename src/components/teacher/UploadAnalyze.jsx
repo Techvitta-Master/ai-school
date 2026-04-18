@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSchool } from '../../context/SchoolContext';
 import { createAndEvaluate } from '../../lib/evaluationService';
-import { useApiLayer } from '../../lib/apiConfig';
+import { isApiLayerEnabled } from '../../lib/apiConfig';
 import { uploadAndEvaluateApi } from '../../lib/schoolApi';
 import {
   Upload, Sparkles, CheckCircle, AlertCircle,
@@ -143,7 +143,7 @@ export default function UploadAnalyze() {
       const test = allTests.find(t => t.id === selectedTestId);
 
       let evaluation;
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         if (!supabase) {
           setUploadError('Supabase Auth is not configured.');
           setUploading(false);

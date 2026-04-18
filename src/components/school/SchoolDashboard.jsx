@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, createElement } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -42,11 +42,11 @@ const subjectSchema = z.object({
 
 const EMPTY_ASSIGN = { teacherId: '', class: '', subject: '' };
 
-function StatCard({ label, value, color, icon: Icon }) {
+function StatCard({ label, value, color, icon }) {
   return (
     <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-center gap-4">
       <div className={`w-12 h-12 ${color} rounded-xl flex items-center justify-center flex-shrink-0`}>
-        <Icon className="w-6 h-6" />
+        {createElement(icon, { className: 'w-6 h-6' })}
       </div>
       <div>
         <p className="text-2xl font-bold text-slate-800">{value}</p>
@@ -452,7 +452,8 @@ function SchoolStudentsPage() {
       rollNo: s.rollNo || 1,
       class: s.class,
     });
-  }, [editId, data.students]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync when row/list changes; editForm identity is unstable
+  }, [editId, data.students, editForm.reset]);
 
   const onAddSubmit = async (values) => {
     const r = await addStudent({ ...values, rollNo: String(values.rollNo), class: String(values.class) });
@@ -653,20 +654,17 @@ function SchoolAssignTeachersPage() {
   const [assignSaving, setAssignSaving] = useState(false);
   const [assignSuccess, setAssignSuccess] = useState(false);
 
-  useEffect(() => {
-    if (sortedClasses.length === 0) return;
-    const first = String(sortedClasses[0].class);
-    setAssignForm((prev) => {
-      const valid = sortedClasses.some((c) => String(c.class) === prev.class);
-      if (valid && prev.class) return prev;
-      return { ...prev, class: first };
-    });
-  }, [sortedClasses]);
+  const firstClass = sortedClasses.length ? String(sortedClasses[0].class) : '';
+  const resolvedClass = useMemo(() => {
+    const valid = sortedClasses.some((c) => String(c.class) === assignForm.class);
+    if (valid && assignForm.class) return assignForm.class;
+    return firstClass;
+  }, [sortedClasses, assignForm.class, firstClass]);
 
   const handleAssign = async (e) => {
     e.preventDefault();
     setAssignSaving(true);
-    const r = await assignTeacherToClass(assignForm.teacherId, assignForm.class, assignForm.subject);
+    const r = await assignTeacherToClass(assignForm.teacherId, resolvedClass, assignForm.subject);
     setAssignSuccess(!r?.error);
     setAssignSaving(false);
     if (!r?.error) {
@@ -701,7 +699,7 @@ function SchoolAssignTeachersPage() {
             <FormSelect
               label="Class"
               required
-              value={assignForm.class}
+              value={resolvedClass}
               onChange={(e) => setAssignForm({ ...assignForm, class: e.target.value })}
               disabled={schoolClasses.length === 0}
             >
@@ -725,7 +723,7 @@ function SchoolAssignTeachersPage() {
             </FormSelect>
             <button
               type="submit"
-              disabled={assignSaving || schoolClasses.length === 0 || !assignForm.class}
+              disabled={assignSaving || schoolClasses.length === 0 || !resolvedClass}
               className="w-full py-3 bg-indigo-600 text-white rounded-xl text-sm font-medium disabled:opacity-60"
             >
               {assignSaving ? 'Saving…' : 'Assign teacher'}

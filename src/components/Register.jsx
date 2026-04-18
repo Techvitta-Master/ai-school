@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { GraduationCap } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import { useApiLayer } from '../lib/apiConfig';
+import { isApiLayerEnabled } from '../lib/apiConfig';
 import { fetchSchoolsList } from '../lib/schoolApi';
 import { REGISTRATION_SCHOOLS } from '../lib/registrationSchools';
 import { Card, CardContent } from './ui/card';
@@ -25,7 +25,7 @@ export default function Register() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         try {
           const data = await fetchSchoolsList();
           if (cancelled) return;

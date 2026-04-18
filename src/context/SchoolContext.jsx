@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { emptySchoolData } from '../lib/schoolEmptyState';
 import { resolveCurrentUser } from '../lib/resolveCurrentUser';
 import * as repo from '../lib/schoolRepository';
-import { useApiLayer } from '../lib/apiConfig';
+import { isApiLayerEnabled } from '../lib/apiConfig';
 import * as schoolApi from '../lib/schoolApi';
 
 const SchoolContext = createContext();
@@ -167,25 +167,6 @@ function mapApiSchoolData(raw) {
   };
 }
 
-const getStoredDemoUser = () => {
-  try {
-    const raw = window.localStorage.getItem(DEMO_USER_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : null;
-  } catch {
-    return null;
-  }
-};
-
-const storeDemoUser = (user) => {
-  try {
-    window.localStorage.setItem(DEMO_USER_STORAGE_KEY, JSON.stringify(user));
-  } catch {
-    // Ignore storage failures (private mode / quota issues).
-  }
-};
-
 const clearStoredDemoUser = () => {
   try {
     window.localStorage.removeItem(DEMO_USER_STORAGE_KEY);
@@ -276,7 +257,7 @@ export const SchoolProvider = ({ children }) => {
   const refreshData = useCallback(async () => {
     if (!supabase || currentUser?.isDemo) return;
     const schoolId = currentUser?.role === 'school' ? currentUser.schoolId : null;
-    if (useApiLayer()) {
+    if (isApiLayerEnabled()) {
       const { data: s } = await supabase.auth.getSession();
       const token = s?.session?.access_token;
       if (!token) return;
@@ -319,7 +300,7 @@ export const SchoolProvider = ({ children }) => {
         }
         let resolved = null;
         try {
-          if (useApiLayer()) {
+          if (isApiLayerEnabled()) {
             const token = sessionData?.session?.access_token;
             if (!token) {
               setAuthError('No access token in session.');
@@ -415,7 +396,7 @@ export const SchoolProvider = ({ children }) => {
       try {
         const schoolId = currentUser.role === 'school' ? currentUser.schoolId : null;
         let remote;
-        if (useApiLayer()) {
+        if (isApiLayerEnabled()) {
           const { data: s } = await supabase.auth.getSession();
           const token = s?.session?.access_token;
           if (!token) throw new Error('No access token.');
@@ -608,7 +589,7 @@ export const SchoolProvider = ({ children }) => {
       if (currentUser?.role === 'school' && currentUser.schoolId) {
         payload.schoolId = currentUser.schoolId;
       }
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return { error: 'Your session has expired. Please sign in again.' };
         await schoolApi.insertTeacherApi(token, payload);
@@ -628,7 +609,7 @@ export const SchoolProvider = ({ children }) => {
     const sessionErr = await ensureRealSession();
     if (sessionErr) return { error: sessionErr };
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return { error: 'Your session has expired. Please sign in again.' };
         await schoolApi.deleteTeacherApi(token, id);
@@ -669,7 +650,7 @@ export const SchoolProvider = ({ children }) => {
           return byId || byName || byNum;
         });
         if (localMatch?.id) return localMatch.id;
-        if (useApiLayer() && schoolIdForClass) {
+        if (isApiLayerEnabled() && schoolIdForClass) {
           const token = await getAccessToken();
           if (!token) return null;
           const classIdMap = await schoolApi.fetchClassIdMapApi(token, schoolIdForClass);
@@ -684,7 +665,7 @@ export const SchoolProvider = ({ children }) => {
         return null;
       };
       try {
-        if (useApiLayer()) {
+        if (isApiLayerEnabled()) {
           const t = await getAccessToken();
           if (!t) return { error: 'Your session has expired. Please sign in again.' };
           if (schoolIdForClass) {
@@ -700,7 +681,7 @@ export const SchoolProvider = ({ children }) => {
       if (!payload.classId) {
         return { error: 'Class could not be resolved. Please select a valid class.' };
       }
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return { error: 'Your session has expired. Please sign in again.' };
         await schoolApi.insertStudentApi(token, payload);
@@ -743,7 +724,7 @@ export const SchoolProvider = ({ children }) => {
           return byId || byName || byNum;
         });
         if (localMatch?.id) return localMatch.id;
-        if (useApiLayer() && schoolIdForClass) {
+        if (isApiLayerEnabled() && schoolIdForClass) {
           const token = await getAccessToken();
           if (!token) return null;
           const classIdMap = await schoolApi.fetchClassIdMapApi(token, schoolIdForClass);
@@ -758,7 +739,7 @@ export const SchoolProvider = ({ children }) => {
         return null;
       };
       try {
-        if (useApiLayer()) {
+        if (isApiLayerEnabled()) {
           const t = await getAccessToken();
           if (!t) return { error: 'Your session has expired. Please sign in again.' };
           if (schoolIdForClass) {
@@ -774,7 +755,7 @@ export const SchoolProvider = ({ children }) => {
       if (!payload.classId) {
         return { error: 'Class could not be resolved. Please select a valid class.' };
       }
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return { error: 'Your session has expired. Please sign in again.' };
         await schoolApi.updateStudentApi(token, id, payload);
@@ -796,7 +777,7 @@ export const SchoolProvider = ({ children }) => {
     const sessionErr = await ensureRealSession();
     if (sessionErr) return { error: sessionErr };
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return { error: 'Your session has expired. Please sign in again.' };
         await schoolApi.deleteStudentApi(token, id);
@@ -820,7 +801,7 @@ export const SchoolProvider = ({ children }) => {
       return { error: 'Your account is not linked to a school.' };
     }
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return { error: 'Your session has expired. Please sign in again.' };
         await schoolApi.insertTeacherClassAssignmentApi(token, teacherId, className, subject, schoolId);
@@ -843,7 +824,7 @@ export const SchoolProvider = ({ children }) => {
     const schoolId = currentUser?.schoolId;
     if (!schoolId) return;
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return;
         await schoolApi.updateTeacherClassAssignmentTeacherApi(
@@ -917,7 +898,7 @@ export const SchoolProvider = ({ children }) => {
     if (!createdBy) return { error: 'Teacher identity is missing. Please sign in again.' };
     try {
       let newId = null;
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return { error: 'Your session has expired. Please sign in again.' };
         const res = await schoolApi.createTestRecordApi(token, testPayload, createdBy);
@@ -937,7 +918,7 @@ export const SchoolProvider = ({ children }) => {
   const removeTest = async (id) => {
     if (!supabase || currentUser?.isDemo) return;
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return;
         await schoolApi.deleteTestApi(token, id);
@@ -955,7 +936,7 @@ export const SchoolProvider = ({ children }) => {
     if (!test) return;
     if (!supabase || currentUser?.isDemo) return;
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return;
         await schoolApi.insertScoreApi(token, studentId, testId, scoreData);
@@ -971,7 +952,7 @@ export const SchoolProvider = ({ children }) => {
   const updateScore = async (studentId, scoreId, newScore) => {
     if (!supabase || currentUser?.isDemo) return;
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return;
         await schoolApi.updateScoreValueApi(token, scoreId, newScore);
@@ -997,7 +978,7 @@ export const SchoolProvider = ({ children }) => {
         storagePath,
         analysis,
       };
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return;
         await schoolApi.insertTestAnalysisRowApi(token, row);
@@ -1020,7 +1001,7 @@ export const SchoolProvider = ({ children }) => {
     try {
       let studentId = payload.studentId || null;
       if (!studentId && payload.rollNo && payload.classId) {
-        if (useApiLayer()) {
+        if (isApiLayerEnabled()) {
           const token = await getAccessToken();
           if (!token) return null;
           studentId = await schoolApi.findStudentIdByRollNoApi(token, payload.rollNo, payload.classId);
@@ -1036,7 +1017,7 @@ export const SchoolProvider = ({ children }) => {
         storagePath: payload.storagePath || '',
         teacherId: currentUser.id,
       };
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return null;
         return await schoolApi.insertAnswerSheetApi(token, row);
@@ -1055,7 +1036,7 @@ export const SchoolProvider = ({ children }) => {
   const getAnswerSheetsByTest = async (testId) => {
     if (!supabase || currentUser?.isDemo) return [];
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return [];
         return await schoolApi.fetchAnswerSheetsByTestApi(token, testId);
@@ -1082,7 +1063,7 @@ export const SchoolProvider = ({ children }) => {
         ...evalData,
         gradedByTeacherId: teacherId,
       };
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return;
         await schoolApi.saveEvaluationApi(token, studentId, testId, payload);
@@ -1311,7 +1292,7 @@ export const SchoolProvider = ({ children }) => {
   const assignStudentsToTeacher = async (studentIds, teacherId) => {
     if (!supabase) return;
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return;
         await schoolApi.assignStudentsToTeacherApi(token, studentIds, teacherId);
@@ -1327,7 +1308,7 @@ export const SchoolProvider = ({ children }) => {
   const assignStudentToTeacherBySubject = async (studentId, teacherId, subject) => {
     if (!supabase) return { error: 'Supabase is not configured.' };
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return { error: 'Your session has expired. Please sign in again.' };
         await schoolApi.upsertStudentSubjectTeacherAssignmentApi(token, studentId, teacherId, subject);
@@ -1350,7 +1331,7 @@ export const SchoolProvider = ({ children }) => {
     if (!trimmed) return { error: 'School name is required.', school: null };
     try {
       let school = null;
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return { error: 'Your session has expired. Please sign in again.', school: null };
         school = await schoolApi.createSchoolApi(token, trimmed, schoolAdminEmail, schoolAdminName);
@@ -1372,7 +1353,7 @@ export const SchoolProvider = ({ children }) => {
     const id = String(schoolId || '').trim();
     if (!id) return { error: 'School id is required.' };
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return { error: 'Your session has expired. Please sign in again.' };
         await schoolApi.deleteSchoolApi(token, id);
@@ -1417,7 +1398,7 @@ export const SchoolProvider = ({ children }) => {
       return { error: msg };
     }
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return { error: 'Your session has expired. Please sign in again.' };
         await schoolApi.insertClassApi(token, targetSchoolId, String(className));
@@ -1444,7 +1425,7 @@ export const SchoolProvider = ({ children }) => {
     const name = String(subjectName || '').trim();
     if (!name) return { error: 'Subject name is required.' };
     try {
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         const token = await getAccessToken();
         if (!token) return { error: 'Your session has expired. Please sign in again.' };
         await schoolApi.insertSubjectApi(token, schoolId, name);

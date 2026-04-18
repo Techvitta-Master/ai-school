@@ -1,13 +1,7 @@
+import { createElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSchool } from '../context/SchoolContext';
 import { ArrowLeft, User, Mail, Shield, BookOpen, School, Hash, LogOut } from 'lucide-react';
-
-const roleBadge = {
-  admin:   'bg-purple-100 text-purple-700',
-  school:  'bg-amber-100 text-amber-800',
-  teacher: 'bg-blue-100 text-blue-700',
-  student: 'bg-emerald-100 text-emerald-700',
-};
 
 export default function Profile() {
   const { currentUser, logout } = useSchool();
@@ -54,10 +48,10 @@ export default function Profile() {
 
           {/* Fields */}
           <div className="p-6 space-y-3">
-            {fields.map(({ icon: Icon, label, value }) => (
+            {fields.map(({ icon, label, value }) => (
               <div key={label} className="flex items-center gap-4 p-3.5 bg-slate-50 rounded-xl">
                 <div className="w-9 h-9 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Icon className="w-4 h-4 text-indigo-600" />
+                  {createElement(icon, { className: 'w-4 h-4 text-indigo-600' })}
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs text-slate-500">{label}</p>

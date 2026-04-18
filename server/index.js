@@ -113,7 +113,7 @@ async function ensurePortalAuthUser(service, { email, role, fullName }) {
   return { userId: user.id, created };
 }
 
-async function upsertPortalIdentity(service, { userId, email, fullName, role, schoolId }) {
+async function upsertPortalIdentity(service, { userId, email, role }) {
   const payload = {
     id: userId,
     email: normalizeEmail(email),
@@ -1049,7 +1049,6 @@ app.post('/api/evaluate/upload-and-evaluate', upload.single('file'), async (req,
       res.status(403).json({ error: 'Only teachers can upload and evaluate.' });
       return;
     }
-    const teacherId = teacher.id;
     const { testId, studentId } = req.body || {};
     if (!testId || !studentId) {
       res.status(400).json({ error: 'testId and studentId are required.' });

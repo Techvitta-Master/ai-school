@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, createElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSchool } from '../../context/SchoolContext';
 import {
@@ -23,11 +23,11 @@ function scoreBarColor(score) {
   return 'bg-red-500';
 }
 
-function StatCard({ icon: Icon, label, value, sub, color = 'text-indigo-600' }) {
+function StatCard({ icon, label, value, sub, color = 'text-indigo-600' }) {
   return (
     <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
       <div className="flex items-center gap-2 mb-2">
-        <Icon className={`w-4 h-4 ${color}`} />
+        {createElement(icon, { className: `w-4 h-4 ${color}` })}
         <span className="text-xs text-gray-500">{label}</span>
       </div>
       <p className={`text-2xl font-bold ${color}`}>{value}</p>

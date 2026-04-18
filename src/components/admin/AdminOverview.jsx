@@ -1,18 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, createElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, CalendarDays, CheckCircle2, Clock3, Plus, Trash2 } from 'lucide-react';
 import { fetchSchoolsList, loadSchoolData as loadSchoolDataApi } from '../../lib/schoolApi';
 import { supabase } from '../../lib/supabaseClient';
-import { useApiLayer } from '../../lib/apiConfig';
+import { isApiLayerEnabled } from '../../lib/apiConfig';
 import { useSchool } from '../../context/SchoolContext';
 import * as repo from '../../lib/schoolRepository';
 
-function StatCard({ label, value, hint, icon: Icon, tone }) {
+function StatCard({ label, value, hint, icon, tone }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
       <div className="flex items-center justify-between mb-4">
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${tone}`}>
-          <Icon className="w-5 h-5" />
+          {createElement(icon, { className: 'w-5 h-5' })}
         </div>
         <span className="text-xs text-slate-500">{hint}</span>
       </div>
@@ -44,7 +44,7 @@ export default function AdminOverview() {
     setLoading(true);
     try {
       let rows = [];
-      if (useApiLayer()) {
+      if (isApiLayerEnabled()) {
         rows = await fetchSchoolsList();
       } else if (supabase) {
         const { data, error } = await supabase.from('schools').select('id,name,created_at').order('created_at');
@@ -100,7 +100,7 @@ export default function AdminOverview() {
 
       try {
         let scopedData;
-        if (useApiLayer()) {
+        if (isApiLayerEnabled()) {
           const { data: s } = await supabase.auth.getSession();
           const token = s?.session?.access_token;
           if (!token) throw new Error('No access token.');

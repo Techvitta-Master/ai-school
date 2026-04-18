@@ -8,7 +8,6 @@ export default function ConductTest() {
     createTest,
     addScore,
     getStudentPerformanceForTeacher,
-    currentUser,
     getTeacherAssignedStudents,
     getTeacherRelevantTestIds,
     getCurrentTeacherId,

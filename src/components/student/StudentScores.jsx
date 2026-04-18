@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, createElement } from 'react';
 import { useSchool } from '../../context/SchoolContext';
 import {
   FileText, TrendingUp, Target, Award, Clock,
@@ -138,12 +138,12 @@ export default function StudentScores() {
           { label: 'Tests Taken',   value: sortedScores.length,                         icon: FileText,   color: 'bg-indigo-100 text-indigo-600' },
           { label: 'Best Score',    value: sortedScores.length ? `${bestScore}%` : '—', icon: Target,     color: 'bg-emerald-100 text-emerald-600' },
           { label: 'Latest Score',  value: sortedScores[0] ? `${sortedScores[0].score}%` : '—', icon: Award, color: 'bg-purple-100 text-purple-600' },
-        ].map(({ label, value, icon: Icon, color }) => (
+        ].map(({ label, value, icon, color }) => (
           <Card key={label}>
             <CardContent className="p-5">
               <div className="flex items-center gap-4">
                 <div className={`w-11 h-11 ${color} rounded-xl flex items-center justify-center flex-shrink-0`}>
-                  <Icon className="w-5 h-5" />
+                  {createElement(icon, { className: 'w-5 h-5' })}
                 </div>
                 <div>
                   <p className="text-xs text-slate-500">{label}</p>

@@ -25,7 +25,6 @@ const CustomTooltip = ({ active, payload }) => {
 export default function TeacherOverview() {
   const {
     currentUser,
-    data,
     dataLoading,
     getStudentPerformanceForTeacher,
     getTeacherPerformance,
@@ -42,7 +41,7 @@ export default function TeacherOverview() {
   const assignedStudents = useMemo(() => {
     if (!teacherId) return [];
     return getTeacherAssignedStudents(teacherId);
-  }, [data, teacherId, getTeacherAssignedStudents]);
+  }, [teacherId, getTeacherAssignedStudents]);
 
   const perf = useMemo(
     () => (teacherId ? getTeacherPerformance(teacherId) : null),

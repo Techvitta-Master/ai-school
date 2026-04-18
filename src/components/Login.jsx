@@ -58,14 +58,14 @@ export default function Login() {
     // Preferred path: once context resolves, navigate by resolved role.
     if (currentUser?.role) {
       navigate(`/${String(currentUser.role).toLowerCase()}`, { replace: true });
-      setPendingRole('');
+      queueMicrotask(() => setPendingRole(''));
       return;
     }
 
     // Fallback path: if role hydration lags, still move to intended route.
     const timeout = window.setTimeout(() => {
       navigate(`/${pendingRole}`, { replace: true });
-      setPendingRole('');
+      queueMicrotask(() => setPendingRole(''));
     }, 900);
 
     return () => window.clearTimeout(timeout);
@@ -75,7 +75,7 @@ export default function Login() {
     // If we are already authenticated and hit /login, forward immediately.
     if (!currentUser?.role) return;
     navigate(`/${String(currentUser.role).toLowerCase()}`, { replace: true });
-    setPendingRole('');
+    queueMicrotask(() => setPendingRole(''));
   }, [currentUser?.role, navigate]);
 
   const fillDemo = (demoRole) => {

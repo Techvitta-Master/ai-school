@@ -1,5 +1,5 @@
-/** API mode is explicit and simple. */
-export function useApiLayer() {
+/** API mode is explicit and simple (reads build-time env; not a React hook). */
+export function isApiLayerEnabled() {
   const raw = String(import.meta.env.VITE_USE_API || '').toLowerCase();
   if (raw === 'false') return false;
   return true;
