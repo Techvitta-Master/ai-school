@@ -1,6 +1,22 @@
 /* global process */
 import { defineConfig, devices } from '@playwright/test';
 
+const baseURL = process.env.PW_BASE_URL || 'http://127.0.0.1:5173';
+
+const webServer =
+  process.env.PW_SKIP_WEBSERVER
+    ? undefined
+    : {
+        command:
+          process.env.PW_WEB_SERVER_COMMAND ||
+          'npm run dev:web -- --host 0.0.0.0 --port 5173',
+        url: baseURL,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+        stdout: 'pipe',
+        stderr: 'pipe',
+      };
+
 export default defineConfig({
   testDir: './e2e',
 
@@ -21,7 +37,7 @@ export default defineConfig({
   ],
 
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL,
     // Screenshot on failure only
     screenshot: 'only-on-failure',
     // Capture trace on first retry
@@ -40,14 +56,10 @@ export default defineConfig({
   // Create fixtures + any teardown before/after the full run
   globalSetup: './e2e/global-setup.js',
 
-  // On Windows, Vite/Tailwind v4 can't be spawned from Playwright's webServer
-  // due to an ERR_WORKER_INIT_FAILED issue. Run `npm run dev` in a separate
-  // terminal first, then execute `npm run test:e2e`.
-  // In CI the server is expected to be started externally before the test run.
-  webServer: {
-    command: 'npm run dev -- --host 0.0.0.0 --port 5173',
-    url: 'http://localhost:5173',
-    reuseExistingServer: true,   // always reuse rather than re-spawn
-    timeout: 30_000,
-  },
+  // Start **Vite only** (not `npm run dev`, which also runs the API server with
+  // `node --env-file=.env`). CI often has no `.env`, so that process exits 1 and
+  // Playwright fails with "webServer was not able to start".
+  // Full stack: run `npm run dev` in another terminal and set PW_SKIP_WEBSERVER=1,
+  // or set PW_WEB_SERVER_COMMAND when `.env` exists.
+  ...(webServer ? { webServer } : {}),
 });

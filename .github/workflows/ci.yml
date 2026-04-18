@@ -7,6 +7,13 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # Exposed to Vitest, Playwright, Vite, etc.
+      CI: true
+      # Matches playwright.config.js default; override if the dev server uses another URL.
+      PW_BASE_URL: http://127.0.0.1:5173
+      # Repository variable SKIP_E2E: set to 1 in GitHub → Settings → Secrets and variables → Actions → Variables to skip Playwright (scripts/run-e2e.mjs). Omit or leave empty to run e2e.
+      SKIP_E2E: ${{ vars.SKIP_E2E }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
