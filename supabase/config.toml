@@ -387,6 +387,9 @@ verify_jwt = true
 [functions.create-school]
 verify_jwt = true
 
+[functions.ai-evaluate-submission]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327

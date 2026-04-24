@@ -49,6 +49,15 @@ export default function UploadAnalyze() {
     [data?.tests]
   );
 
+  const selectedClassId = useMemo(() => {
+    return (data?.schoolClasses || []).find((c) => String(c.class) === String(selectedClass))?.id || null;
+  }, [data?.schoolClasses, selectedClass]);
+
+  const testsForSelectedClass = useMemo(() => {
+    if (!selectedClassId) return allTests;
+    return allTests.filter((t) => t.classId === selectedClassId || t.class_id === selectedClassId);
+  }, [allTests, selectedClassId]);
+
   const classOptions = useMemo(() => {
     const fromAssigned = [...new Set(assignedStudents.map((s) => s.class))]
       .filter((n) => n != null)
@@ -75,10 +84,17 @@ export default function UploadAnalyze() {
 
   // Pre-fill test selector
   useEffect(() => {
-    if (!selectedTestId && allTests.length) {
-      setSelectedTestId(allTests[0].id);
+    if (!selectedTestId && testsForSelectedClass.length) {
+      setSelectedTestId(testsForSelectedClass[0].id);
     }
-  }, [allTests, selectedTestId]);
+  }, [testsForSelectedClass, selectedTestId]);
+
+  useEffect(() => {
+    if (!selectedTestId) return;
+    if (!testsForSelectedClass.some((t) => t.id === selectedTestId)) {
+      setSelectedTestId(testsForSelectedClass[0]?.id || '');
+    }
+  }, [selectedTestId, testsForSelectedClass]);
 
   // Deep link: ?studentId= from My Class
   useEffect(() => {
@@ -138,7 +154,12 @@ export default function UploadAnalyze() {
     setUploadError('');
 
     try {
-      const test = allTests.find(t => t.id === selectedTestId);
+      const test = testsForSelectedClass.find((t) => t.id === selectedTestId) || allTests.find((t) => t.id === selectedTestId);
+      if (!test) {
+        setUploadError('Selected test is not available for this class.');
+        setUploading(false);
+        return;
+      }
 
       let evaluation;
       if (!supabase) {
@@ -423,15 +444,15 @@ export default function UploadAnalyze() {
                 onChange={(e) => setSelectedTestId(e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
               >
-                {allTests.length ? (
-                  allTests.map((t) => (
+                {testsForSelectedClass.length ? (
+                  testsForSelectedClass.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.title}
                       {teacherTestIds.has(t.id) ? ' · My subject' : ' · All tests'}
                     </option>
                   ))
                 ) : (
-                  <option value="">No tests — add one under Add test</option>
+                  <option value="">No tests for this class — add one under Add test</option>
                 )}
               </select>
             </div>
@@ -487,7 +508,7 @@ export default function UploadAnalyze() {
 
         <button
           type="submit"
-          disabled={uploading || !allTests.length}
+          disabled={uploading || !testsForSelectedClass.length}
           className="w-full py-3.5 bg-indigo-600 text-white rounded-2xl font-semibold text-sm hover:bg-indigo-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
         >
           {uploading ? (
@@ -503,9 +524,9 @@ export default function UploadAnalyze() {
           )}
         </button>
 
-        {!allTests.length && (
+        {!testsForSelectedClass.length && (
           <p className="text-center text-sm text-amber-600">
-            No tests found. Create one from <strong>Add test</strong>.
+            No tests found for this class. Create one from <strong>Add test</strong>.
           </p>
         )}
       </form>

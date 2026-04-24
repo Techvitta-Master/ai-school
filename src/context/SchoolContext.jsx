@@ -8,6 +8,7 @@ import * as authService from '../services/authService';
 
 const SchoolContext = createContext();
 const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || '123456';
+const AI_EVALUATION_ENABLED = import.meta.env.VITE_ENABLE_AI_EVALUATION === 'true';
 const DEMO_USER_STORAGE_KEY = 'demoCurrentUser';
 const normalizeEmail = (value) => (value || '').trim().toLowerCase();
 const DEMO_USERS = {
@@ -83,6 +84,10 @@ function parseClassNumber(value) {
   const s = String(value ?? '').trim();
   const m = s.match(/(\d+)/);
   return m ? Number(m[1]) : 0;
+}
+
+function safeFileName(name) {
+  return String(name || 'upload.bin').replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
 const clearStoredDemoUser = () => {
@@ -812,6 +817,141 @@ export const SchoolProvider = ({ children }) => {
     }
   };
 
+  const submitAIEvaluationJob = async ({
+    testId,
+    classId,
+    studentId,
+    questionPaperFile,
+    answerKeyFile,
+    studentAnswerFile,
+  }) => {
+    if (!AI_EVALUATION_ENABLED) return { error: 'AI evaluation feature is disabled.' };
+    if (!supabase) return { error: 'Supabase is not configured.' };
+    if (currentUser?.isDemo) return { error: 'Demo mode cannot submit AI evaluation jobs.' };
+    if (currentUser?.role !== 'teacher') return { error: 'Only teachers can submit AI evaluations.' };
+    if (!testId || !classId || !studentId) return { error: 'testId, classId and studentId are required.' };
+    if (!studentAnswerFile) return { error: 'Student answer file is required.' };
+
+    const teacherId = getCurrentTeacherId();
+    if (!teacherId) return { error: 'Teacher identity is missing. Please sign in again.' };
+
+    const student = (data.students || []).find((s) => s.id === studentId);
+    if (!student) return { error: 'Student not found for this school context.' };
+
+    const schoolId = currentUser?.schoolId || student.schoolId || null;
+    if (!schoolId) return { error: 'Could not resolve school scope for this submission.' };
+
+    const storageBucket = 'answer-sheets';
+    const stamp = Date.now();
+    const basePath = `ai-evaluation/${teacherId}/student-${studentId}/${stamp}`;
+
+    const uploadFile = async (kind, file) => {
+      if (!file) return '';
+      const path = `${basePath}/${kind}-${safeFileName(file.name)}`;
+      const { error } = await supabase.storage
+        .from(storageBucket)
+        .upload(path, file, { upsert: true, contentType: file.type || undefined });
+      if (error) throw new Error(`Failed to upload ${kind}: ${error.message}`);
+      return path;
+    };
+
+    try {
+      const [questionPaperPath, answerKeyPath, studentAnswerPath] = await Promise.all([
+        uploadFile('question-paper', questionPaperFile),
+        uploadFile('answer-key', answerKeyFile),
+        uploadFile('student-answer', studentAnswerFile),
+      ]);
+
+      const submission = await repo.createAnswerSubmission(supabase, {
+        schoolId,
+        classId,
+        testId,
+        studentId,
+        uploadedByTeacherId: teacherId,
+        storageBucket,
+        questionPaperPath,
+        answerKeyPath,
+        studentAnswerPath,
+        mimeType: studentAnswerFile?.type || null,
+        metadata: {
+          uploadedByEmail: currentUser?.email || '',
+          originalFiles: {
+            questionPaper: questionPaperFile?.name || '',
+            answerKey: answerKeyFile?.name || '',
+            studentAnswer: studentAnswerFile?.name || '',
+          },
+        },
+      });
+
+      const idempotencyKey = `${submission.id}-${studentId}-${testId}`;
+      const job = await repo.createGradingJob(supabase, {
+        submissionId: submission.id,
+        schoolId,
+        idempotencyKey,
+        createdBy: currentUser?.authUserId || currentUser?.id || null,
+        modelConfig: {
+          ocrProvider: 'sarvam',
+          gradingProvider: import.meta.env.VITE_AI_GRADING_PROVIDER || 'llm',
+        },
+      });
+
+      try {
+        await repo.invokeAIEvaluationJob(supabase, job.id);
+      } catch (invokeErr) {
+        console.error('ai-evaluation invoke failed', invokeErr);
+      }
+
+      await refreshData();
+      return { error: null, submissionId: submission.id, jobId: job.id };
+    } catch (err) {
+      const msg = err?.message || 'Failed to submit AI evaluation job.';
+      setAuthError(msg);
+      return { error: msg };
+    }
+  };
+
+  const getAIEvaluationJob = async (jobId) => {
+    if (!AI_EVALUATION_ENABLED || !supabase || !jobId) return null;
+    try {
+      return await repo.getGradingJobById(supabase, jobId);
+    } catch (err) {
+      setAuthError(err?.message || 'Failed to load AI evaluation job.');
+      return null;
+    }
+  };
+
+  const listMyAIEvaluationJobs = async ({ limit = 20 } = {}) => {
+    if (!AI_EVALUATION_ENABLED || !supabase || currentUser?.role !== 'teacher') return [];
+    try {
+      const teacherId = getCurrentTeacherId();
+      if (!teacherId) return [];
+      return await repo.listGradingJobsByTeacher(supabase, teacherId, { limit });
+    } catch (err) {
+      setAuthError(err?.message || 'Failed to list AI evaluation jobs.');
+      return [];
+    }
+  };
+
+  const getQuestionScoresForResult = async (resultId) => {
+    if (!AI_EVALUATION_ENABLED || !supabase || !resultId) return [];
+    try {
+      return await repo.listQuestionScoresForResult(supabase, resultId);
+    } catch (err) {
+      setAuthError(err?.message || 'Failed to load question scores.');
+      return [];
+    }
+  };
+
+  const getImprovementPlanForResult = async (resultId) => {
+    if (!AI_EVALUATION_ENABLED || !supabase || !resultId) return null;
+    try {
+      return await repo.getImprovementPlanForResult(supabase, resultId);
+    } catch (err) {
+      setAuthError(err?.message || 'Failed to load improvement plan.');
+      return null;
+    }
+  };
+
   const getStudentPerformance = useCallback((studentId) => {
     const student = data.students.find((s) => s.id === studentId);
     if (!student) return null;
@@ -1256,6 +1396,11 @@ export const SchoolProvider = ({ children }) => {
         saveAnswerSheet,
         getAnswerSheetsByTest,
         saveEvaluation,
+        submitAIEvaluationJob,
+        getAIEvaluationJob,
+        listMyAIEvaluationJobs,
+        getQuestionScoresForResult,
+        getImprovementPlanForResult,
         getStudentPerformance,
         getStudentPerformanceForTeacher,
         getTeacherPerformance,

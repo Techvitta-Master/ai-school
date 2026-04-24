@@ -22,6 +22,7 @@ export {
 
 import * as teacherService from '../services/teacherService.js';
 import * as studentService from '../services/studentService.js';
+import * as aiEvaluationService from '../services/aiEvaluationService.js';
 import {
   upsertResult,
   updateResultMarks,
@@ -128,6 +129,34 @@ export async function fetchAnswerSheetsByTeacher(supabase, teacherId) {
   void supabase;
   void teacherId;
   return [];
+}
+
+export async function createAnswerSubmission(supabase, payload) {
+  return aiEvaluationService.createAnswerSubmission(supabase, payload);
+}
+
+export async function createGradingJob(supabase, payload) {
+  return aiEvaluationService.createGradingJob(supabase, payload);
+}
+
+export async function getGradingJobById(supabase, jobId) {
+  return aiEvaluationService.getGradingJobById(supabase, jobId);
+}
+
+export async function listGradingJobsByTeacher(supabase, teacherId, options) {
+  return aiEvaluationService.listGradingJobsByTeacher(supabase, teacherId, options);
+}
+
+export async function listQuestionScoresForResult(supabase, resultId) {
+  return aiEvaluationService.listQuestionScoresForResult(supabase, resultId);
+}
+
+export async function getImprovementPlanForResult(supabase, resultId) {
+  return aiEvaluationService.getImprovementPlanForResult(supabase, resultId);
+}
+
+export async function invokeAIEvaluationJob(supabase, jobId) {
+  return aiEvaluationService.invokeAIEvaluationJob(supabase, jobId);
 }
 
 /**

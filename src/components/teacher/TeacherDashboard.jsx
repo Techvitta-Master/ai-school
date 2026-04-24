@@ -5,8 +5,10 @@ import ConductTest from './ConductTest';
 import UploadAnalyze from './UploadAnalyze';
 import TeacherAddTest from './TeacherAddTest';
 import CompareClasses from './CompareClasses';
+import AIEvaluationWorkbench from './AIEvaluationWorkbench';
 
 const ADVANCED_TOOLS = import.meta.env.VITE_ENABLE_ADVANCED_TEACHER_TOOLS === 'true';
+const AI_EVALUATION = import.meta.env.VITE_ENABLE_AI_EVALUATION === 'true';
 
 export default function TeacherDashboard() {
   return (
@@ -16,6 +18,7 @@ export default function TeacherDashboard() {
 
       {/* Upload & evaluate answer sheet */}
       <Route path="upload" element={<UploadAnalyze />} />
+      {AI_EVALUATION && <Route path="ai-evaluation" element={<AIEvaluationWorkbench />} />}
 
       <Route path="tests" element={<TeacherAddTest />} />
 

@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useSchool } from '../context/SchoolContext';
 import {
   GraduationCap, LayoutDashboard, Users,
-  BookOpen, FileText, BarChart3, LogOut, ChevronLeft, Bell, Search, Menu, X, Building2, Network, ScrollText,
+  BookOpen, FileText, BarChart3, LogOut, ChevronLeft, Bell, Search, Menu, X, Building2, Network, ScrollText, Sparkles,
 } from 'lucide-react';
 import { Avatar } from './ui/avatar';
 import { Button } from './ui/button';
@@ -12,6 +12,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { Badge } from './ui/badge';
 
 const ADVANCED_TEACHER  = import.meta.env.VITE_ENABLE_ADVANCED_TEACHER_TOOLS === 'true';
+const AI_EVALUATION = import.meta.env.VITE_ENABLE_AI_EVALUATION === 'true';
 
 const buildRoleConfig = () => ({
   admin: {
@@ -38,6 +39,7 @@ const buildRoleConfig = () => ({
       { path: '/teacher', label: 'My Class', icon: Users },
       { path: '/teacher/tests', label: 'Add test', icon: FileText },
       { path: '/teacher/upload', label: 'Upload & Analyze', icon: BarChart3 },
+      ...(AI_EVALUATION ? [{ path: '/teacher/ai-evaluation', label: 'AI Evaluation', icon: Sparkles }] : []),
       { path: '/teacher/analytics', label: 'Analytics', icon: LayoutDashboard },
       ...(ADVANCED_TEACHER ? [
         { path: '/teacher/conduct-test', label: 'Conduct Test', icon: FileText },
