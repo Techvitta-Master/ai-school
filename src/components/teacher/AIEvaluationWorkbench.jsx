@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Sparkles, Upload, AlertCircle, CheckCircle2, Clock3, FileText } from 'lucide-react';
 import { useSchool } from '../../context/SchoolContext';
 import { supabase } from '../../lib/supabaseClient';
+import EvaluationDetailReport from '../shared/EvaluationDetailReport';
+import { runLocalEvaluation, isLocalEvaluatorEnabled } from '../../services/localEvaluator';
+
+const LOCAL_MODE = isLocalEvaluatorEnabled();
 
 const MAX_BYTES = parseInt(import.meta.env.VITE_UPLOAD_MAX_BYTES || '10485760', 10);
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg', 'text/plain'];
@@ -27,8 +31,9 @@ export default function AIEvaluationWorkbench() {
     submitAIEvaluationJob,
     getAIEvaluationJob,
     listMyAIEvaluationJobs,
-    getQuestionScoresForResult,
-    getImprovementPlanForResult,
+    getEvaluationDetail,
+    overrideAIQuestionScore,
+    requestAIRegrade,
   } = useSchool();
 
   const teacherId = getCurrentTeacherId();
@@ -54,11 +59,13 @@ export default function AIEvaluationWorkbench() {
   const [submitting, setSubmitting] = useState(false);
   const [activeJobId, setActiveJobId] = useState('');
   const [activeJob, setActiveJob] = useState(null);
-  const [questionScores, setQuestionScores] = useState([]);
-  const [improvementPlan, setImprovementPlan] = useState(null);
+  const [evaluation, setEvaluation] = useState({ result: null, questions: [], plan: null });
   const [recentJobs, setRecentJobs] = useState([]);
   const [ocrArtifact, setOcrArtifact] = useState(null);
   const [llmArtifact, setLlmArtifact] = useState(null);
+  const [overrideError, setOverrideError] = useState('');
+  const [localStatus, setLocalStatus] = useState('');
+  const [localMeta, setLocalMeta] = useState(null);
   const pollingRef = useRef(null);
 
   const effectiveSelectedClass = selectedClass || (classOptions.length ? String(classOptions[0]) : '');
@@ -120,12 +127,8 @@ export default function AIEvaluationWorkbench() {
     if (!job) return;
 
     if (job.result_id) {
-      const [scores, plan] = await Promise.all([
-        getQuestionScoresForResult(job.result_id),
-        getImprovementPlanForResult(job.result_id),
-      ]);
-      setQuestionScores(scores);
-      setImprovementPlan(plan);
+      const detail = await getEvaluationDetail(job.result_id);
+      if (detail) setEvaluation(detail);
       const [ocrJson, llmJson] = await Promise.all([
         loadArtifactJson(job.raw_ocr_path),
         loadArtifactJson(job.raw_llm_path),
@@ -133,8 +136,7 @@ export default function AIEvaluationWorkbench() {
       setOcrArtifact(ocrJson);
       setLlmArtifact(llmJson);
     } else {
-      setQuestionScores([]);
-      setImprovementPlan(null);
+      setEvaluation({ result: null, questions: [], plan: null });
       setOcrArtifact(null);
       setLlmArtifact(null);
     }
@@ -150,12 +152,8 @@ export default function AIEvaluationWorkbench() {
       const job = await getAIEvaluationJob(activeJobId);
       setActiveJob(job);
       if (job?.result_id) {
-        const [scores, plan] = await Promise.all([
-          getQuestionScoresForResult(job.result_id),
-          getImprovementPlanForResult(job.result_id),
-        ]);
-        setQuestionScores(scores);
-        setImprovementPlan(plan);
+        const detail = await getEvaluationDetail(job.result_id);
+        if (detail) setEvaluation(detail);
         const [ocrJson, llmJson] = await Promise.all([
           loadArtifactJson(job.raw_ocr_path),
           loadArtifactJson(job.raw_llm_path),
@@ -178,6 +176,32 @@ export default function AIEvaluationWorkbench() {
     };
   }, [activeJobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleOverride = async (question, payload) => {
+    setOverrideError('');
+    const res = await overrideAIQuestionScore(question.id, payload);
+    if (res?.error) {
+      setOverrideError(res.error);
+      return res;
+    }
+    if (activeJob?.result_id) {
+      const detail = await getEvaluationDetail(activeJob.result_id);
+      if (detail) setEvaluation(detail);
+    }
+    return res;
+  };
+
+  const handleRegrade = async () => {
+    const submissionId = activeJob?.answer_submissions?.id || activeJob?.submission_id;
+    if (!submissionId) return;
+    setOverrideError('');
+    const res = await requestAIRegrade(submissionId, { parentJobId: activeJob.id });
+    if (res?.error) {
+      setOverrideError(res.error);
+      return;
+    }
+    if (res.jobId) setActiveJobId(res.jobId);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -188,6 +212,45 @@ export default function AIEvaluationWorkbench() {
     }
     if (!selectedClassId || !selectedStudentId || !effectiveSelectedTestId || !studentAnswerFile) {
       setError('Please select class, student, test, and upload student answer sheet.');
+      return;
+    }
+
+    if (LOCAL_MODE) {
+      setSubmitting(true);
+      setLocalStatus('Starting...');
+      setLocalMeta(null);
+      setEvaluation({ result: null, questions: [], plan: null });
+      try {
+        const body = await runLocalEvaluation({
+          questionPaperFile,
+          answerKeyFile,
+          studentAnswerFile,
+          onProgress: (p) => {
+            if (p.stage && !p.page) setLocalStatus(p.stage);
+            else if (p.stage === 'ocr-recognize') setLocalStatus(`OCR'ing ${p.file || 'file'} page ${p.page} of ${p.total}...`);
+            else if (p.stage === 'ocr-progress') setLocalStatus(`OCR'ing... ${p.progress}%`);
+            else if (p.stage === 'ocr-init') setLocalStatus(`Loading OCR engine (Hindi + English)...`);
+            else if (p.stage === 'ocr-render') setLocalStatus(`Rendering ${p.file || 'page'} ${p.page} of ${p.total}...`);
+          },
+        });
+        setEvaluation({ result: body.result, questions: body.questions, plan: body.plan });
+        setLocalMeta({
+          elapsedMs: body.elapsedMs,
+          embeddingsAvailable: body.embeddingsAvailable,
+          degraded: body.degraded,
+          inputWarnings: body.inputWarnings || [],
+          noReference: body.noReference || false,
+        });
+        setActiveJob({ id: 'local', status: 'done' });
+        setLocalStatus('');
+        setQuestionPaperFile(null);
+        setAnswerKeyFile(null);
+        setStudentAnswerFile(null);
+      } catch (err) {
+        setError(err?.message || 'Local evaluation failed.');
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
 
@@ -220,6 +283,19 @@ export default function AIEvaluationWorkbench() {
           Upload question paper, key answer, and student answer sheet to run OCR + LLM grading.
         </p>
       </div>
+
+      {LOCAL_MODE ? (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 text-xs text-indigo-900 flex items-start gap-2">
+          <Sparkles className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-semibold">Local AI evaluation pipeline active</p>
+            <p className="mt-0.5 text-indigo-800">
+              Files are processed by the local Node server (Sarvam chat + on-device multilingual embeddings). Nothing is saved to Supabase.
+              To switch to the production pipeline, set <code className="bg-white/70 px-1 py-0.5 rounded">VITE_USE_LOCAL_EVALUATOR=false</code> in <code className="bg-white/70 px-1 py-0.5 rounded">.env</code> and apply migration 038 + deploy the edge function.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -295,12 +371,19 @@ export default function AIEvaluationWorkbench() {
         </button>
       </form>
 
+      {submitting && LOCAL_MODE && localStatus ? (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-indigo-100 flex items-center gap-3 text-sm text-indigo-900">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>{localStatus}</span>
+        </div>
+      ) : null}
+
       {activeJob && (
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h3 className="text-base font-semibold text-slate-900">Active Job</h3>
-              <p className="text-xs text-slate-500">Job ID: {activeJob.id}</p>
+              <h3 className="text-base font-semibold text-slate-900">{LOCAL_MODE ? 'Latest evaluation' : 'Active Job'}</h3>
+              {!LOCAL_MODE ? <p className="text-xs text-slate-500">Job ID: {activeJob.id}</p> : null}
             </div>
             <StatusBadge value={activeJob.status} />
           </div>
@@ -309,52 +392,41 @@ export default function AIEvaluationWorkbench() {
             <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl p-3">{activeJob.error_message}</div>
           ) : null}
 
-          {questionScores.length > 0 && (
-            <div className="space-y-2">
-              <h4 className="text-sm font-semibold text-slate-800">Question Scores</h4>
-              <div className="space-y-2">
-                {questionScores.map((q) => (
-                  <div key={q.id} className="border border-gray-100 rounded-xl px-3 py-2 text-sm space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-slate-700">{q.question_no}</span>
-                      <span className="text-indigo-700 font-semibold">
-                        {q.score}/{q.max_score}
-                      </span>
-                    </div>
-                    {q.evaluator_reasoning ? <p className="text-xs text-slate-500 mt-1">{q.evaluator_reasoning}</p> : null}
-                    {q.extracted_answer ? (
-                      <div className="bg-slate-50 rounded-lg p-2">
-                        <p className="text-[11px] uppercase tracking-wider text-slate-500 mb-1">OCR extracted answer</p>
-                        <p className="text-xs text-slate-700 whitespace-pre-wrap">{q.extracted_answer}</p>
-                      </div>
-                    ) : null}
-                    {Array.isArray(q.weaknesses) && q.weaknesses.length > 0 ? (
-                      <p className="text-xs text-amber-700">Needs work: {q.weaknesses.join(', ')}</p>
-                    ) : null}
-                    {Array.isArray(q.strengths) && q.strengths.length > 0 ? (
-                      <p className="text-xs text-emerald-700">Good: {q.strengths.join(', ')}</p>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {overrideError ? (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl p-3">{overrideError}</div>
+          ) : null}
 
-          {improvementPlan ? (
-            <div className="space-y-2">
-              <h4 className="text-sm font-semibold text-slate-800">Improvement Plan</h4>
-              <p className="text-sm text-slate-700">{improvementPlan.plan_text}</p>
-              {Array.isArray(improvementPlan.weak_topics) && improvementPlan.weak_topics.length > 0 ? (
-                <p className="text-xs text-amber-700">Weak topics: {improvementPlan.weak_topics.join(', ')}</p>
-              ) : null}
-              {Array.isArray(improvementPlan.tasks) && improvementPlan.tasks.length > 0 ? (
-                <ul className="text-sm text-slate-600 list-disc list-inside space-y-1">
-                  {improvementPlan.tasks.map((task, idx) => (
-                    <li key={`${idx}-${task}`}>{task}</li>
-                  ))}
-                </ul>
-              ) : null}
+          {LOCAL_MODE && localMeta?.noReference ? (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 text-sm text-amber-900 space-y-1">
+              <p className="font-semibold flex items-center gap-2"><AlertCircle className="w-4 h-4" /> No valid reference answer key</p>
+              <p className="text-xs text-amber-800">
+                {(localMeta.inputWarnings || []).includes('answer_key_unrelated') ? "The answer key is on a different topic than the question paper." : "The answer key was empty or unreadable."}
+                {' '}AI graded each answer using only the question and its subject knowledge. All scores are flagged for teacher review.
+              </p>
             </div>
+          ) : null}
+
+          {LOCAL_MODE && localMeta ? (
+            <div className="text-xs text-slate-500 flex items-center gap-3 flex-wrap">
+              <span>Completed in {(localMeta.elapsedMs / 1000).toFixed(1)}s</span>
+              <span className={localMeta.embeddingsAvailable ? 'text-emerald-700' : 'text-amber-700'}>
+                Semantic similarity: {localMeta.embeddingsAvailable ? 'enabled (multilingual embeddings)' : 'disabled'}
+              </span>
+              {localMeta.degraded && !localMeta.noReference ? <span className="text-amber-700">degraded mode</span> : null}
+            </div>
+          ) : null}
+
+          {evaluation.questions.length > 0 ? (
+            <EvaluationDetailReport
+              result={evaluation.result}
+              questions={evaluation.questions}
+              plan={evaluation.plan}
+              canOverride={!LOCAL_MODE}
+              hideModelAnswer={false}
+              onOverride={LOCAL_MODE ? undefined : handleOverride}
+              onRequestRegrade={!LOCAL_MODE && activeJob.status === 'done' ? handleRegrade : undefined}
+              testTitle={data.tests?.find((t) => t.id === evaluation.result?.test_id)?.title}
+            />
           ) : null}
 
           {(ocrArtifact || llmArtifact) && (
@@ -376,9 +448,9 @@ export default function AIEvaluationWorkbench() {
                   </div>
                 </div>
               ) : null}
-              {llmArtifact?.output ? (
+              {Array.isArray(llmArtifact?.rows) ? (
                 <p className="text-xs text-slate-500">
-                  Model output persisted. Prompt size: {llmArtifact.requestPromptSize || 0} chars.
+                  Model output persisted. {llmArtifact.rows.length} question judgments recorded.
                 </p>
               ) : null}
             </div>

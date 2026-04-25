@@ -20,4 +20,9 @@ export default defineConfig({
     // errors in this environment. Dev still works with manual refresh.
     hmr: false,
   },
+  optimizeDeps: {
+    // Tesseract.js ships its own worker + WASM and breaks when Vite tries to
+    // pre-bundle it. Exclude so it's loaded as ESM directly from node_modules.
+    exclude: ['tesseract.js'],
+  },
 })

@@ -155,6 +155,30 @@ export async function getImprovementPlanForResult(supabase, resultId) {
   return aiEvaluationService.getImprovementPlanForResult(supabase, resultId);
 }
 
+export async function listQuestionFeedbackForResult(supabase, resultId) {
+  return aiEvaluationService.listQuestionFeedbackForResult(supabase, resultId);
+}
+
+export async function fetchEvaluationDetail(supabase, resultId) {
+  return aiEvaluationService.fetchEvaluationDetail(supabase, resultId);
+}
+
+export async function overrideQuestionScore(supabase, questionScoreId, payload) {
+  return aiEvaluationService.overrideQuestionScore(supabase, questionScoreId, payload);
+}
+
+export async function listGradingAuditForResult(supabase, resultId) {
+  return aiEvaluationService.listGradingAuditForResult(supabase, resultId);
+}
+
+export async function listReviewQueueForTeacher(supabase, teacherId, options) {
+  return aiEvaluationService.listReviewQueueForTeacher(supabase, teacherId, options);
+}
+
+export async function requestRegrade(supabase, submissionId, options) {
+  return aiEvaluationService.requestRegrade(supabase, submissionId, options);
+}
+
 export async function invokeAIEvaluationJob(supabase, jobId) {
   return aiEvaluationService.invokeAIEvaluationJob(supabase, jobId);
 }

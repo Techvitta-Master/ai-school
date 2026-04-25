@@ -9,6 +9,7 @@ import SchoolDashboard from './components/school/SchoolDashboard';
 import TeacherDashboard from './components/teacher/TeacherDashboard';
 import StudentDashboard from './components/student/StudentDashboard';
 import Layout from './components/Layout';
+import EvaluationDemo from './components/demo/EvaluationDemo';
 
 // ─── Full-page loading skeleton shown during auth + data hydration ─────────────
 function AppSkeleton() {
@@ -64,6 +65,7 @@ const AppRoutes = () => {
       <Route path="/register" element={<Register />} />
       <Route path="/profile"  element={<Profile />} />
       <Route path="/settings" element={<Profile />} />
+      <Route path="/demo/evaluation" element={<EvaluationDemo />} />
 
       <Route path="/admin/*" element={
         <ProtectedRoute allowedRoles={['admin']}>

@@ -952,6 +952,79 @@ export const SchoolProvider = ({ children }) => {
     }
   };
 
+  const getEvaluationDetail = async (resultId) => {
+    if (!AI_EVALUATION_ENABLED || !supabase || !resultId) return null;
+    try {
+      return await repo.fetchEvaluationDetail(supabase, resultId);
+    } catch (err) {
+      setAuthError(err?.message || 'Failed to load evaluation detail.');
+      return null;
+    }
+  };
+
+  const overrideAIQuestionScore = async (questionScoreId, { newScore, reason }) => {
+    if (!AI_EVALUATION_ENABLED || !supabase || !questionScoreId) {
+      return { error: 'AI evaluation is not enabled.' };
+    }
+    try {
+      const updated = await repo.overrideQuestionScore(supabase, questionScoreId, {
+        newScore,
+        reason,
+        actorId: currentUser?.id || null,
+      });
+      return { error: null, row: updated };
+    } catch (err) {
+      const msg = err?.message || 'Failed to override score.';
+      setAuthError(msg);
+      return { error: msg };
+    }
+  };
+
+  const requestAIRegrade = async (submissionId, { parentJobId } = {}) => {
+    if (!AI_EVALUATION_ENABLED || !supabase || !submissionId) {
+      return { error: 'AI evaluation is not enabled.' };
+    }
+    try {
+      const job = await repo.requestRegrade(supabase, submissionId, {
+        actorId: currentUser?.id || null,
+        parentJobId: parentJobId || null,
+      });
+      try {
+        await repo.invokeAIEvaluationJob(supabase, job.id);
+      } catch (invokeErr) {
+        console.error('regrade invoke failed', invokeErr);
+      }
+      await refreshData();
+      return { error: null, jobId: job.id };
+    } catch (err) {
+      const msg = err?.message || 'Failed to start regrade.';
+      setAuthError(msg);
+      return { error: msg };
+    }
+  };
+
+  const listAIReviewQueue = async ({ limit = 50 } = {}) => {
+    if (!AI_EVALUATION_ENABLED || !supabase || currentUser?.role !== 'teacher') return [];
+    try {
+      const teacherId = getCurrentTeacherId();
+      if (!teacherId) return [];
+      return await repo.listReviewQueueForTeacher(supabase, teacherId, { limit });
+    } catch (err) {
+      setAuthError(err?.message || 'Failed to load review queue.');
+      return [];
+    }
+  };
+
+  const listAIGradingAudit = async (resultId) => {
+    if (!AI_EVALUATION_ENABLED || !supabase || !resultId) return [];
+    try {
+      return await repo.listGradingAuditForResult(supabase, resultId);
+    } catch (err) {
+      setAuthError(err?.message || 'Failed to load grading audit.');
+      return [];
+    }
+  };
+
   const getStudentPerformance = useCallback((studentId) => {
     const student = data.students.find((s) => s.id === studentId);
     if (!student) return null;
@@ -1401,6 +1474,11 @@ export const SchoolProvider = ({ children }) => {
         listMyAIEvaluationJobs,
         getQuestionScoresForResult,
         getImprovementPlanForResult,
+        getEvaluationDetail,
+        overrideAIQuestionScore,
+        requestAIRegrade,
+        listAIReviewQueue,
+        listAIGradingAudit,
         getStudentPerformance,
         getStudentPerformanceForTeacher,
         getTeacherPerformance,

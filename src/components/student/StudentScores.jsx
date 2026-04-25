@@ -1,9 +1,10 @@
-import { useMemo, useState, createElement } from 'react';
+import { useMemo, useState, useEffect, createElement } from 'react';
 import { Link } from 'react-router-dom';
 import { useSchool } from '../../context/SchoolContext';
 import {
   FileText, TrendingUp, Target, Award, Clock,
   Sparkles, TrendingDown, Star, BookOpen, User, ExternalLink, ScrollText, ChevronRight,
+  Brain,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import ReportCard from './ReportCard';
+import EvaluationDetailReport from '../shared/EvaluationDetailReport';
 
 const ScoreTooltip = ({ active, payload }) => {
   if (active && payload?.length) {
@@ -41,8 +43,11 @@ const computeGrade = (score) => {
 };
 
 export default function StudentScores() {
-  const { currentUser, data, getStudentPerformance } = useSchool();
+  const { currentUser, data, getStudentPerformance, getEvaluationDetail } = useSchool();
   const [reportCardScore, setReportCardScore] = useState(null); // score record to show in modal
+  const [aiDetailScoreId, setAiDetailScoreId] = useState(null);
+  const [aiDetail, setAiDetail] = useState(null);
+  const aiDetailLoading = !!aiDetailScoreId && (!aiDetail || aiDetail.result?.id !== aiDetailScoreId);
 
   // Student can be matched by id (real Supabase user) or fallback to email
   const student = useMemo(() => {
@@ -99,6 +104,23 @@ export default function StudentScores() {
   }, [sortedScores, data.tests]);
 
   const bestScore = sortedScores.length > 0 ? Math.max(...sortedScores.map(s => s.score)) : 0;
+
+  useEffect(() => {
+    if (!aiDetailScoreId) return undefined;
+    let cancelled = false;
+    (async () => {
+      const detail = await getEvaluationDetail(aiDetailScoreId);
+      if (!cancelled) setAiDetail(detail);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [aiDetailScoreId, getEvaluationDetail]);
+
+  const aiDetailTest = useMemo(() => {
+    if (!aiDetail?.result?.test_id) return null;
+    return data.tests.find(t => t.id === aiDetail.result.test_id) || null;
+  }, [aiDetail, data.tests]);
 
   // ── No student record yet ────────────────────────────────────────────────
   if (!student) {
@@ -266,14 +288,24 @@ export default function StudentScores() {
                       {fb.score}% &nbsp;·&nbsp; {fb.grade}
                     </div>
                     {scoreRecord && (
-                      <button
-                        type="button"
-                        onClick={() => setReportCardScore(scoreRecord)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-medium transition-colors"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                        View Report Card
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setAiDetailScoreId(scoreRecord.id)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-medium transition-colors"
+                        >
+                          <Brain className="w-3 h-3" />
+                          AI Detailed Review
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReportCardScore(scoreRecord)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-medium transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          View Report Card
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -331,6 +363,42 @@ export default function StudentScores() {
           </p>
         </div>
       )}
+
+      {/* AI Detailed Review modal */}
+      <Dialog
+        open={!!aiDetailScoreId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAiDetailScoreId(null);
+            setAiDetail(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto p-6">
+          <DialogHeader className="mb-2">
+            <DialogTitle className="text-base flex items-center gap-2">
+              <Brain className="w-4 h-4 text-indigo-600" /> AI Detailed Review
+            </DialogTitle>
+          </DialogHeader>
+          {aiDetailLoading ? (
+            <div className="py-12 text-center text-sm text-slate-500">Loading detailed review...</div>
+          ) : aiDetail && aiDetail.questions?.length ? (
+            <EvaluationDetailReport
+              result={aiDetail.result}
+              questions={aiDetail.questions}
+              plan={aiDetail.plan}
+              canOverride={false}
+              hideModelAnswer
+              testTitle={aiDetailTest?.title || 'Test'}
+              studentLabel={`${student.name} · Class ${student.class}`}
+            />
+          ) : (
+            <div className="py-10 text-center text-sm text-slate-500">
+              Detailed AI review is not available for this test yet.
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Report Card modal */}
       <Dialog open={!!reportCardScore} onOpenChange={(open) => !open && setReportCardScore(null)}>
