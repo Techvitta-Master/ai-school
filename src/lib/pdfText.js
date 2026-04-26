@@ -7,8 +7,8 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-const OCR_MAX_PAGES = 12;
-const OCR_RENDER_SCALE = 2;
+const OCR_MAX_PAGES = 8;
+const OCR_RENDER_SCALE = 1.5;
 const OCR_LANGS = 'hin+eng';
 
 let tesseractLoadingPromise = null;

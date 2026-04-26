@@ -221,10 +221,20 @@ export default function AIEvaluationWorkbench() {
       setLocalMeta(null);
       setEvaluation({ result: null, questions: [], plan: null });
       try {
+        const studentRecord = assignedStudents.find((s) => s.id === selectedStudentId);
+        const ids = {
+          studentId: selectedStudentId,
+          testId: effectiveSelectedTestId,
+          classId: selectedClassId,
+          schoolId: studentRecord?.schoolId || null,
+          teacherId: teacherId || null,
+        };
+
         const body = await runLocalEvaluation({
           questionPaperFile,
           answerKeyFile,
           studentAnswerFile,
+          ids,
           onProgress: (p) => {
             if (p.stage && !p.page) setLocalStatus(p.stage);
             else if (p.stage === 'ocr-recognize') setLocalStatus(`OCR'ing ${p.file || 'file'} page ${p.page} of ${p.total}...`);
@@ -240,12 +250,18 @@ export default function AIEvaluationWorkbench() {
           degraded: body.degraded,
           inputWarnings: body.inputWarnings || [],
           noReference: body.noReference || false,
+          persistence: body.persistence || null,
         });
-        setActiveJob({ id: 'local', status: 'done' });
+        setActiveJob({ id: body.persistence?.jobId || 'local', status: 'done' });
         setLocalStatus('');
         setQuestionPaperFile(null);
         setAnswerKeyFile(null);
         setStudentAnswerFile(null);
+
+        if (body.persistence?.saved) {
+          const rows = await listMyAIEvaluationJobs({ limit: 15 });
+          setRecentJobs(rows);
+        }
       } catch (err) {
         setError(err?.message || 'Local evaluation failed.');
       } finally {
@@ -413,6 +429,30 @@ export default function AIEvaluationWorkbench() {
                 Semantic similarity: {localMeta.embeddingsAvailable ? 'enabled (multilingual embeddings)' : 'disabled'}
               </span>
               {localMeta.degraded && !localMeta.noReference ? <span className="text-amber-700">degraded mode</span> : null}
+              {localMeta.persistence?.saved ? (
+                <span className="text-emerald-700">Saved to Supabase ✓</span>
+              ) : localMeta.persistence?.error ? (
+                <span className="text-rose-700">Supabase save failed: {localMeta.persistence.error.slice(0, 120)}</span>
+              ) : localMeta.persistence?.reason === 'missing_ids' ? (
+                <span className="text-amber-700">Not saved (select student + test first)</span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {LOCAL_MODE && evaluation.questions.length === 0 ? (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 text-sm text-amber-900 space-y-2">
+              <p className="font-semibold flex items-center gap-2"><AlertCircle className="w-4 h-4" /> No questions could be extracted</p>
+              <p className="text-xs text-amber-800">
+                The AI could not find numbered questions in the uploaded files. Common causes:
+              </p>
+              <ul className="text-xs text-amber-800 list-disc pl-5 space-y-0.5">
+                <li>The OCR could not read the handwriting / scan quality is too low.</li>
+                <li>No question paper was uploaded and the answer sheet has no question numbers.</li>
+                <li>The uploaded PDFs are blank or contain only images the OCR could not read.</li>
+              </ul>
+              <p className="text-xs text-amber-800">
+                Tip: also upload the <strong>Question Paper</strong> so the AI can pair answers to numbered questions, and use clear scans where text is readable.
+              </p>
             </div>
           ) : null}
 

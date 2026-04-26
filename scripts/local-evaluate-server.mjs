@@ -51,6 +51,197 @@ if (!SARVAM_KEY) {
   process.exit(1);
 }
 
+// ── Supabase persistence (optional) ─────────────────────────────────────────
+const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+let supabaseAdmin = null;
+if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+  try {
+    const { createClient } = await import('@supabase/supabase-js');
+    supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    console.log(`[supabase] persistence enabled → ${SUPABASE_URL}`);
+  } catch (e) {
+    console.warn(`[supabase] failed to initialise client: ${e.message}`);
+  }
+} else {
+  console.log('[supabase] persistence disabled (set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY to enable)');
+}
+
+async function persistEvaluation({ pipelineOut, ids }) {
+  if (!supabaseAdmin) return { saved: false, reason: 'no_client' };
+  const { studentId, testId, classId, schoolId, teacherId, fileNames } = ids || {};
+  if (!studentId || !testId || !classId || !schoolId) {
+    return { saved: false, reason: 'missing_ids' };
+  }
+
+  const stamp = new Date().toISOString();
+  const fName = (s) => String(s || '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
+  const submissionPaths = {
+    question_paper_path: fileNames?.questionPaper ? `local/${stamp}-qp-${fName(fileNames.questionPaper)}` : '',
+    answer_key_path:     fileNames?.answerKey     ? `local/${stamp}-key-${fName(fileNames.answerKey)}`    : '',
+    student_answer_path: `local/${stamp}-ans-${fName(fileNames?.studentAnswer || 'student.pdf')}`,
+  };
+
+  // 1) answer_submissions
+  const { data: subRow, error: subErr } = await supabaseAdmin
+    .from('answer_submissions')
+    .insert({
+      school_id: schoolId, class_id: classId, test_id: testId, student_id: studentId,
+      uploaded_by_teacher_id: teacherId || null,
+      storage_bucket: 'answer-sheets',
+      ...submissionPaths,
+      status: 'done',
+      metadata: { source: 'local-evaluator', degraded: pipelineOut.degraded, warnings: pipelineOut.inputWarnings || [] },
+    })
+    .select('id')
+    .single();
+  if (subErr) throw new Error(`answer_submissions insert: ${subErr.message}`);
+
+  // 2) results (upsert on (student_id, test_id))
+  const { data: resRow, error: resErr } = await supabaseAdmin
+    .from('results')
+    .upsert({
+      student_id: studentId,
+      test_id: testId,
+      marks: pipelineOut.result.marks,
+      percentage: pipelineOut.result.percentage,
+    }, { onConflict: 'student_id,test_id' })
+    .select('id')
+    .single();
+  if (resErr) throw new Error(`results upsert: ${resErr.message}`);
+
+  // 3) grading_jobs
+  const { data: jobRow, error: jobErr } = await supabaseAdmin
+    .from('grading_jobs')
+    .insert({
+      submission_id: subRow.id,
+      school_id: schoolId,
+      status: 'done',
+      attempts: 1,
+      idempotency_key: `local-${randomUUID()}`,
+      model_config: { chat: CHAT_MODEL, embed: 'Xenova/paraphrase-multilingual-MiniLM-L12-v2' },
+      model_versions: { chat: CHAT_MODEL, embed: 'Xenova/paraphrase-multilingual-MiniLM-L12-v2' },
+      degraded_mode: !!pipelineOut.degraded,
+      result_id: resRow.id,
+      started_at: stamp,
+      finished_at: new Date().toISOString(),
+      created_by: null,
+    })
+    .select('id')
+    .single();
+  if (jobErr) throw new Error(`grading_jobs insert: ${jobErr.message}`);
+
+  // 4) question_scores — clear existing rows for this result first to keep upsert simple
+  await supabaseAdmin.from('question_scores').delete().eq('result_id', resRow.id);
+
+  const qsRows = pipelineOut.questions.map((q) => ({
+    result_id: resRow.id,
+    submission_id: subRow.id,
+    test_id: testId,
+    student_id: studentId,
+    question_no: q.question_no,
+    max_score: q.max_score,
+    score: q.score,
+    original_ai_score: q.original_ai_score,
+    confidence: q.confidence,
+    extracted_answer: q.extracted_answer,
+    evaluator_reasoning: q.evaluator_reasoning,
+    strengths: q.strengths,
+    weaknesses: q.weaknesses,
+    rubric: q.rubric,
+    needs_review: !!q.needs_review,
+    review_reasons: q.review_reasons || [],
+    alignment_confidence: q.alignment_confidence,
+    question_text: q.question_text,
+    model_answer: q.model_answer,
+    student_answer_present: !!q.student_answer_present,
+    topic: q.topic,
+    subtopic: q.subtopic,
+    bloom_level: q.bloom_level,
+    semantic_similarity: q.semantic_similarity,
+    llm_score: q.llm_score,
+    student_lang: q.student_lang,
+    model_lang: q.model_lang,
+  }));
+  const { data: qsInserted, error: qsErr } = await supabaseAdmin
+    .from('question_scores')
+    .insert(qsRows)
+    .select('id, question_no');
+  if (qsErr) throw new Error(`question_scores insert: ${qsErr.message}`);
+
+  // Map question_no → new question_score id so feedback rows can FK correctly
+  const idByNo = new Map(qsInserted.map((r) => [r.question_no, r.id]));
+  const fbRows = pipelineOut.questions
+    .map((q) => ({ q, id: idByNo.get(q.question_no) }))
+    .filter(({ id, q }) => id && q.feedback)
+    .map(({ id, q }) => ({
+      question_score_id: id,
+      key_concepts_present: q.feedback.key_concepts_present || [],
+      missed_concepts: q.feedback.missed_concepts || [],
+      factual_errors: q.feedback.factual_errors || [],
+      structural_issues: q.feedback.structural_issues || [],
+      improvement_areas: q.feedback.improvement_areas || [],
+      suggested_format: q.feedback.suggested_format || null,
+      exemplar_answer: q.feedback.exemplar_answer || null,
+    }));
+  if (fbRows.length) {
+    const { error: fbErr } = await supabaseAdmin.from('question_feedback').insert(fbRows);
+    if (fbErr) throw new Error(`question_feedback insert: ${fbErr.message}`);
+  }
+
+  // 5) grading_audit — one row per question recording the AI score event,
+  //    so teachers (and downstream analytics) can see when each score was assigned.
+  //    Clear prior rows for this result first, since we re-grade every run.
+  await supabaseAdmin.from('grading_audit').delete().eq('result_id', resRow.id);
+  const auditRows = qsInserted.map((qs) => {
+    const q = pipelineOut.questions.find((x) => x.question_no === qs.question_no);
+    return {
+      question_score_id: qs.id,
+      result_id: resRow.id,
+      actor_id: null,
+      actor_role: 'system',
+      action: 'ai_score',
+      before_score: null,
+      after_score: q?.score ?? 0,
+      reason: q?.evaluator_reasoning ? clampLen(q.evaluator_reasoning, 600) : null,
+      metadata: {
+        chat_model: CHAT_MODEL,
+        confidence: q?.confidence,
+        semantic_similarity: q?.semantic_similarity,
+        needs_review: !!q?.needs_review,
+        review_reasons: q?.review_reasons || [],
+      },
+    };
+  });
+  if (auditRows.length) {
+    const { error: auditErr } = await supabaseAdmin.from('grading_audit').insert(auditRows);
+    if (auditErr) throw new Error(`grading_audit insert: ${auditErr.message}`);
+  }
+
+  // 6) student_improvement_plans (upsert on (student_id, test_id, result_id))
+  if (pipelineOut.plan) {
+    const { error: planErr } = await supabaseAdmin
+      .from('student_improvement_plans')
+      .upsert({
+        student_id: studentId,
+        test_id: testId,
+        result_id: resRow.id,
+        submission_id: subRow.id,
+        plan_text: pipelineOut.plan.plan_text || '',
+        weak_topics: pipelineOut.plan.weak_topics || [],
+        tasks: pipelineOut.plan.tasks || [],
+        topic_breakdown: pipelineOut.plan.topic_breakdown || [],
+        model_version: CHAT_MODEL,
+        generated_by: 'llm',
+      }, { onConflict: 'student_id,test_id,result_id' });
+    if (planErr) throw new Error(`student_improvement_plans upsert: ${planErr.message}`);
+  }
+
+  return { saved: true, submissionId: subRow.id, jobId: jobRow.id, resultId: resRow.id };
+}
+
 // ── tiny utilities ──────────────────────────────────────────────────────────
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const clampLen = (s, n) => String(s || '').slice(0, n);
@@ -137,7 +328,9 @@ function repairTruncatedJson(text) {
   return trimmed;
 }
 
-async function chatJson(systemPrompt, userPrompt, { maxTokens = 2400, temperature = 0.2, retries = 2 } = {}) {
+const FALLBACK_CHAT_MODEL = (process.env.SARVAM_FALLBACK_CHAT_MODEL || 'sarvam-m').trim();
+
+async function chatJson(systemPrompt, userPrompt, { maxTokens = 2400, temperature = 0.2, retries = 2, model = CHAT_MODEL } = {}) {
   let messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user',   content: userPrompt },
@@ -152,7 +345,7 @@ async function chatJson(systemPrompt, userPrompt, { maxTokens = 2400, temperatur
           'api-subscription-key': SARVAM_KEY,
           Authorization: `Bearer ${SARVAM_KEY}`,
         },
-        body: JSON.stringify({ model: CHAT_MODEL, messages, max_tokens: maxTokens, temperature }),
+        body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature }),
       });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
@@ -186,6 +379,18 @@ async function chatJson(systemPrompt, userPrompt, { maxTokens = 2400, temperatur
     }
   }
   return JSON.parse(extractJson(lastContent));
+}
+
+async function chatJsonWithFallback(systemPrompt, userPrompt, opts = {}) {
+  try {
+    return await chatJson(systemPrompt, userPrompt, opts);
+  } catch (err) {
+    if (FALLBACK_CHAT_MODEL && FALLBACK_CHAT_MODEL !== CHAT_MODEL && /empty content|finish_reason=length|json parse failed/i.test(err.message)) {
+      console.warn(`[chat] primary model failed (${err.message.slice(0, 120)}); retrying with fallback ${FALLBACK_CHAT_MODEL}`);
+      return await chatJson(systemPrompt, userPrompt, { ...opts, model: FALLBACK_CHAT_MODEL });
+    }
+    throw err;
+  }
 }
 
 // Sarvam does not offer a public embeddings API. We use Transformers.js with a
@@ -241,48 +446,17 @@ async function embedBatch(texts) {
 }
 
 // ── prompts (mirror of supabase/functions/.../_lib/prompts.ts) ──────────────
-const EXTRACT_AND_PAIR_SYSTEM = `You are a strict JSON extractor for a CBSE/ICSE-style school grading system.
-You will receive three texts: a question paper, an answer key, and a student's answer sheet.
-Output ONLY valid JSON, no commentary, no code fences.
-Pair items by normalised question number. Accept "Q1", "1.", "1)", "1(a)", Roman/Devanagari numerals.
-If a question has no student answer, emit it with student_answer_present=false.
-Default max_marks to 5 when not specified. Cap each text field at 1500 characters.
-
-CRITICAL RULES — these protect grading integrity:
-A. model_answer MUST be copied verbatim from the ANSWER_KEY only. NEVER copy from the STUDENT_ANSWER. NEVER paraphrase or invent it.
-B. If the ANSWER_KEY is empty, garbled, or clearly belongs to a DIFFERENT subject/document
-   (e.g. ANSWER_KEY is a résumé, an unrelated chapter, financial document, or wrong test paper),
-   set model_answer to "" for EVERY question and add the warning code to input_warnings.
-C. If the ANSWER_KEY text is essentially the same as the STUDENT_ANSWER text
-   (i.e. they were extracted from the same source), treat the answer key as missing:
-   set model_answer to "" for EVERY question and warn 'answer_key_same_as_student'.
-D. If the QUESTION_PAPER is empty, derive question_text only from clearly-marked questions
-   in the other texts. If you cannot, set question_text to "" and lower alignment_confidence.
-
-input_warnings codes (use exactly these strings):
-  - "answer_key_empty"          : the answer key text is missing or near-empty
-  - "answer_key_unrelated"      : the answer key is on a different topic/subject than the question paper
-  - "answer_key_same_as_student": the answer key text matches the student answer text
-  - "questions_low_confidence"  : questions could not be parsed reliably
-
-Schema:
-{
-  "input_warnings": string[],
-  "questions": [{
-    "question_no": string,
-    "question_text": string,
-    "model_answer": string,
-    "max_marks": integer,
-    "topic": string,
-    "key_concepts": string[],
-    "student_answer": string,
-    "student_answer_present": boolean,
-    "alignment_confidence": number
-  }]
-}`;
+const EXTRACT_AND_PAIR_SYSTEM = `Extract numbered questions from CBSE/ICSE texts. Output minified JSON only, no fences, no commentary.
+Accept "Q1","1.","1)","I.","II." and Devanagari numerals. Pair by question number.
+Cap question_text/model_answer/student_answer at 200 chars EACH. Default max_marks=5.
+Emit AT MOST 15 questions. If text is OCR noise, still extract whatever readable numbered items you can find.
+If ANSWER_KEY ≈ STUDENT_ANSWER text, set model_answer="" and add "answer_key_same_as_student" to warnings.
+Schema (no other fields): {"warnings":[],"questions":[{"n":"1","q":"...","m":"...","s":"...","mm":5}]}`;
 
 const JUDGE_SYSTEM = `You are an experienced CBSE/ICSE examiner. Grade ONE answer using the rubric.
-Output ONLY valid JSON. No code fences, no commentary. Be strict but fair.
+Output ONLY valid JSON, minified, no whitespace. No code fences, no commentary. Be strict but fair.
+Keep exemplar_answer under 400 chars, suggested_format under 200 chars, reasoning under 200 chars.
+Keep each list (key_concepts_present, missed_concepts, factual_errors, structural_issues, improvement_areas) at most 3 short items.
 
 Rubric (apply by content match against the model answer when one exists,
 otherwise grade against the question and your subject knowledge):
@@ -401,27 +575,49 @@ async function evaluatePipeline({ questionPaper, answerKey, studentAnswer }) {
   // tempt the LLM to fabricate model answers. Pass an explicit marker instead.
   const answerKeyForExtractor = noReference ? '(not provided — grade without reference)' : answerKey;
 
-  const parsed = await chatJson(EXTRACT_AND_PAIR_SYSTEM, [
-    'QUESTION_PAPER:', questionPaper || '(empty)', '',
-    'ANSWER_KEY:', answerKeyForExtractor || '(empty)', '',
-    'STUDENT_ANSWER:', studentAnswer || '(empty)',
-  ].join('\n'), { maxTokens: 3500, temperature: 0.1 });
+  // Hard-trim inputs to keep total prompt under starter-tier budget.
+  // Devanagari is ~3x denser in tokens than English; 2500 chars ≈ 1500 tokens per field.
+  const TRIM = 2500;
+  const qpTrim     = clampLen(questionPaper, TRIM);
+  const keyTrim    = clampLen(answerKeyForExtractor, TRIM);
+  const studentTrim = clampLen(studentAnswer, TRIM);
 
-  const llmWarnings = Array.isArray(parsed?.input_warnings) ? parsed.input_warnings.filter((w) => typeof w === 'string') : [];
+  console.log(`[extract] inputs preview (trimmed to ${TRIM}c each):`);
+  console.log(`  qp     : ${qpTrim.slice(0, 160).replace(/\s+/g, ' ')}`);
+  console.log(`  key    : ${keyTrim.slice(0, 160).replace(/\s+/g, ' ')}`);
+  console.log(`  student: ${studentTrim.slice(0, 160).replace(/\s+/g, ' ')}`);
+
+  const parsed = await chatJsonWithFallback(EXTRACT_AND_PAIR_SYSTEM, [
+    'QUESTION_PAPER:', qpTrim || '(empty)', '',
+    'ANSWER_KEY:', keyTrim || '(empty)', '',
+    'STUDENT_ANSWER:', studentTrim || '(empty)',
+  ].join('\n'), { maxTokens: 4000, temperature: 0.1 });
+
+  console.log(`[extract] parsed keys: ${Object.keys(parsed || {}).join(',')} · questions=${(parsed?.questions || []).length} · warnings=${JSON.stringify(parsed?.warnings || parsed?.input_warnings || [])}`);
+  if (!parsed?.questions?.length) {
+    console.log(`[extract] EMPTY questions — raw parsed: ${JSON.stringify(parsed).slice(0, 500)}`);
+  }
+
+  const llmWarnings = Array.isArray(parsed?.warnings || parsed?.input_warnings)
+    ? (parsed.warnings || parsed.input_warnings).filter((w) => typeof w === 'string')
+    : [];
   const allWarnings = Array.from(new Set([...preWarnings, ...llmWarnings]));
 
   const questions = (parsed?.questions || []).map((q, i) => {
-    let modelAnswer = clampLen(q.model_answer || '', 1500);
-    const studentAns = clampLen(q.student_answer || '', 1500);
-    // Only strip model_answer when the answer key was already flagged unusable (noReference).
-    // If the user genuinely uploaded matching content for both (e.g. testing), let the LLM
-    // grade student vs identical model answer = 100%. Don't second-guess that.
+    // Accept both short keys ({n,q,m,s,mm}) and the older long keys ({question_no,...}).
+    const qNo  = q.n ?? q.question_no;
+    const qTxt = q.q ?? q.question_text;
+    const mAns = q.m ?? q.model_answer;
+    const sAns = q.s ?? q.student_answer;
+    const mMrk = q.mm ?? q.max_marks;
+    let modelAnswer = clampLen(mAns || '', 1500);
+    const studentAns = clampLen(sAns || '', 1500);
     if (noReference) modelAnswer = '';
     return {
-      question_no: String(q.question_no || `Q${i + 1}`).trim(),
-      question_text: clampLen(q.question_text || '', 1500),
+      question_no: String(qNo || `Q${i + 1}`).trim(),
+      question_text: clampLen(qTxt || '', 1500),
       model_answer: modelAnswer,
-      max_marks: Math.max(1, Math.round(safeNumber(q.max_marks, 5))),
+      max_marks: Math.max(1, Math.round(safeNumber(mMrk, 5))),
       topic: clampLen(q.topic || 'general', 120),
       key_concepts: safeStrArr(q.key_concepts),
       student_answer: studentAns,
@@ -438,27 +634,27 @@ async function evaluatePipeline({ questionPaper, answerKey, studentAnswer }) {
   }
   const embeddings = await embedBatch(texts);
 
-  const rows = [];
-  // Sequential to avoid Sarvam rate limits during a UI demo.
-  for (let i = 0; i < questions.length; i++) {
-    const q = questions[i];
+  // Grade questions in parallel batches to cut wall-clock time. Sarvam starter
+  // tier handles ~4 concurrent chat calls comfortably; tune via JUDGE_CONCURRENCY.
+  const JUDGE_CONCURRENCY = Math.max(1, Number(process.env.JUDGE_CONCURRENCY || 4));
+
+  async function gradeOne(q, i) {
     const lang = detectScript(q.student_answer);
     const modelLang = detectScript(q.model_answer || q.question_text);
     const similarity         = cosine(embeddings[i*3+1] || [], embeddings[i*3]   || []);
     const questionSimilarity = cosine(embeddings[i*3+1] || [], embeddings[i*3+2] || []);
 
     if (!q.student_answer_present) {
-      rows.push({ q, lang, modelLang, similarity, questionSimilarity, judgment: {
+      return { q, lang, modelLang, similarity, questionSimilarity, judgment: {
         score: 0, key_concepts_present: [], missed_concepts: q.key_concepts,
         factual_errors: [], structural_issues: [], improvement_areas: ['Attempt the question.'],
         suggested_format: 'Begin with a definition, list the key concepts, support with one example.',
         exemplar_answer: q.model_answer || '', subtopic: q.topic, bloom_level: 'Remember',
         confidence: 1, reasoning: 'Question not attempted by the student.',
-      }, calibration: { finalScore: 0, needsReview: false, reasons: ['question not attempted'] } });
-      continue;
+      }, calibration: { finalScore: 0, needsReview: false, reasons: ['question not attempted'] } };
     }
 
-    const judgmentRaw = await chatJson(JUDGE_SYSTEM, judgeUserPrompt(q, lang), { maxTokens: 2400, temperature: 0.2 });
+    const judgmentRaw = await chatJsonWithFallback(JUDGE_SYSTEM, judgeUserPrompt(q, lang), { maxTokens: 3500, temperature: 0.2 });
     const judgment = {
       score: Math.max(0, Math.min(q.max_marks, safeNumber(judgmentRaw.score, 0))),
       key_concepts_present: safeStrArr(judgmentRaw.key_concepts_present),
@@ -473,7 +669,6 @@ async function evaluatePipeline({ questionPaper, answerKey, studentAnswer }) {
       confidence: Math.max(0, Math.min(1, safeNumber(judgmentRaw.confidence, 0.6))),
       reasoning: clampLen(judgmentRaw.reasoning, 600),
     };
-    // In no-reference mode, cap confidence so calibration always flags needs_review
     if (noReference) judgment.confidence = Math.min(judgment.confidence, 0.5);
     const calibration = calibrate({
       llmScore: judgment.score, maxMarks: q.max_marks,
@@ -484,8 +679,32 @@ async function evaluatePipeline({ questionPaper, answerKey, studentAnswer }) {
       calibration.reasons.push('graded without reference answer');
       calibration.needsReview = true;
     }
-    rows.push({ q, lang, modelLang, similarity, questionSimilarity, judgment, calibration });
+    return { q, lang, modelLang, similarity, questionSimilarity, judgment, calibration };
   }
+
+  const rows = new Array(questions.length);
+  let nextIdx = 0;
+  const tJudge = Date.now();
+  console.log(`[judge] grading ${questions.length} questions with concurrency=${JUDGE_CONCURRENCY}`);
+  await Promise.all(
+    Array.from({ length: Math.min(JUDGE_CONCURRENCY, questions.length) }, async () => {
+      while (true) {
+        const i = nextIdx++;
+        if (i >= questions.length) return;
+        try {
+          rows[i] = await gradeOne(questions[i], i);
+        } catch (e) {
+          console.warn(`[judge] q${questions[i].question_no} failed: ${e.message}`);
+          rows[i] = {
+            q: questions[i], lang: 'unknown', modelLang: 'unknown', similarity: 0, questionSimilarity: 0,
+            judgment: { score: 0, key_concepts_present: [], missed_concepts: [], factual_errors: [], structural_issues: [], improvement_areas: [], suggested_format: '', exemplar_answer: '', subtopic: questions[i].topic, bloom_level: 'Remember', confidence: 0, reasoning: `Grading failed: ${e.message.slice(0, 200)}` },
+            calibration: { finalScore: 0, needsReview: true, reasons: ['judge call failed'] },
+          };
+        }
+      }
+    })
+  );
+  console.log(`[judge] done in ${((Date.now() - tJudge) / 1000).toFixed(1)}s`);
 
   const obtained = rows.reduce((a, r) => a + r.calibration.finalScore, 0);
   const totalMax = rows.reduce((a, r) => a + r.q.max_marks, 0) || 1;
@@ -500,7 +719,7 @@ async function evaluatePipeline({ questionPaper, answerKey, studentAnswer }) {
   ].join('\n');
   let plan = null;
   try {
-    plan = await chatJson(PLAN_SYSTEM, planUserPrompt, { maxTokens: 2400, temperature: 0.4 });
+    plan = await chatJsonWithFallback(PLAN_SYSTEM, planUserPrompt, { maxTokens: 3500, temperature: 0.4 });
   } catch (e) {
     console.warn(`[plan] synthesis failed: ${e.message}`);
   }
@@ -622,17 +841,29 @@ const server = createServer(async (req, res) => {
     try {
       const raw = await readBody(req);
       const payload = JSON.parse(raw || '{}');
-      const { questionPaper = '', answerKey = '', studentAnswer = '' } = payload;
+      const { questionPaper = '', answerKey = '', studentAnswer = '', ids = null, fileNames = null } = payload;
       if (!String(studentAnswer).trim()) {
         res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'studentAnswer is required' }));
         return;
       }
-      console.log(`[evaluate] qp=${questionPaper.length}c key=${answerKey.length}c student=${studentAnswer.length}c`);
+      console.log(`[evaluate] qp=${questionPaper.length}c key=${answerKey.length}c student=${studentAnswer.length}c · ids=${JSON.stringify(ids || {})}`);
       const out = await evaluatePipeline({ questionPaper, answerKey, studentAnswer });
       console.log(`[evaluate] done in ${(out.elapsedMs / 1000).toFixed(1)}s · ${out.result.marks}/${out.questions.reduce((a, q) => a + q.max_score, 0)}`);
+
+      let persistence = { saved: false, reason: 'not_attempted' };
+      if (ids && supabaseAdmin) {
+        try {
+          persistence = await persistEvaluation({ pipelineOut: out, ids: { ...ids, fileNames } });
+          console.log(`[supabase] persisted: result=${persistence.resultId} job=${persistence.jobId}`);
+        } catch (e) {
+          console.error(`[supabase] persistence failed: ${e.message}`);
+          persistence = { saved: false, reason: 'error', error: e.message };
+        }
+      }
+
       res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(out));
+      res.end(JSON.stringify({ ...out, persistence }));
     } catch (err) {
       console.error('[evaluate] error', err);
       res.writeHead(500, { ...cors, 'Content-Type': 'application/json' });

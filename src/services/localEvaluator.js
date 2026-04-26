@@ -20,7 +20,7 @@ async function fileToText(file, onProgress) {
   });
 }
 
-export async function runLocalEvaluation({ questionPaperFile, answerKeyFile, studentAnswerFile, onProgress }) {
+export async function runLocalEvaluation({ questionPaperFile, answerKeyFile, studentAnswerFile, ids = null, onProgress }) {
   if (!studentAnswerFile) throw new Error('Student answer file is required.');
 
   const stage = (label) => onProgress?.({ stage: label });
@@ -38,7 +38,17 @@ export async function runLocalEvaluation({ questionPaperFile, answerKeyFile, stu
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ questionPaper, answerKey, studentAnswer }),
+    body: JSON.stringify({
+      questionPaper,
+      answerKey,
+      studentAnswer,
+      ids,
+      fileNames: {
+        questionPaper: questionPaperFile?.name || '',
+        answerKey: answerKeyFile?.name || '',
+        studentAnswer: studentAnswerFile?.name || '',
+      },
+    }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body?.error || `Local evaluator returned ${res.status}`);
